@@ -53,7 +53,9 @@ const UserLocationMap: React.FC<UserLocationMapProps> = ({ className = "" }) => 
           setLoading(false);
         },
         (error) => {
-          console.error('Geolocation error:', error);
+          if (import.meta.env.DEV) {
+            console.error('Geolocation error:', error);
+          }
           setError('Location access denied. Please enable location services or enter manually.');
           setLoading(false);
         }
@@ -79,7 +81,9 @@ const UserLocationMap: React.FC<UserLocationMapProps> = ({ className = "" }) => 
         const { data, error: secretError } = await supabase.functions.invoke('get-google-maps-key');
         
         if (secretError || !data?.apiKey) {
-          console.warn('Google Maps API key not configured. Using fallback location display.');
+          if (import.meta.env.DEV) {
+            console.warn('Google Maps API key not configured. Using fallback location display.');
+          }
           setApiKeyMissing(true);
           setLoading(false);
           return;
@@ -95,7 +99,9 @@ const UserLocationMap: React.FC<UserLocationMapProps> = ({ className = "" }) => 
         getCurrentLocation();
 
       } catch (error) {
-        console.error('Error loading map:', error);
+        if (import.meta.env.DEV) {
+          console.error('Error loading map:', error);
+        }
         setApiKeyMissing(true);
         setLoading(false);
       }

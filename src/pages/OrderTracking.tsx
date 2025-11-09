@@ -10,7 +10,8 @@ import { format } from 'date-fns';
 
 interface Order {
   id: string;
-  payment_id: string;
+  payment_id?: string;
+  payment_method?: string;
   status: string;
   customer_name: string;
   address: string;
@@ -54,7 +55,6 @@ const OrderTracking = () => {
   const fetchOrder = async (orderId: string) => {
     try {
       setLoading(true);
-      console.log('Fetching order with ID:', orderId);
       
       // Only fetch orders for logged-in users
       // For guests, show error
@@ -66,19 +66,20 @@ const OrderTracking = () => {
       }
 
       // Fetch order only for the logged-in user
-      // Only show orders with payment_id (real paid orders, not test/fake orders)
+      // Show both paid orders and COD orders
       const query = supabase
         .from('orders')
         .select('*')
         .eq('id', orderId)
         .eq('user_id', user.id)
-        .not('payment_id', 'is', null) // Only orders with payment_id (real orders)
         .single();
 
       const { data: orderData, error: orderError } = await query;
 
       if (orderError) {
-        console.error('Error fetching order:', orderError);
+        if (import.meta.env.DEV) {
+          console.error('Error fetching order:', orderError);
+        }
         setError(`Failed to load order: ${orderError.message}`);
         setOrder(null);
         setLoading(false);
@@ -86,7 +87,21 @@ const OrderTracking = () => {
       }
 
       if (!orderData) {
-        console.error('Order not found');
+        setError('Order not found. Please check the order ID.');
+        setOrder(null);
+        setLoading(false);
+        return;
+      }
+
+      // Verify it's a real order (paid or COD)
+      const isRealOrder = orderData.payment_id || 
+                         orderData.payment_method === 'cod' || 
+                         orderData.payment_status === 'cod-confirmed' ||
+                         orderData.status === 'pending' ||
+                         orderData.status === 'cod-confirmed' ||
+                         orderData.status === 'paid';
+      
+      if (!isRealOrder) {
         setError('Order not found. Please check the order ID.');
         setOrder(null);
         setLoading(false);
@@ -105,25 +120,30 @@ const OrderTracking = () => {
           orderItems = itemsData as OrderItem[];
         }
       } catch (itemsErr) {
-        console.warn('Could not fetch order items:', itemsErr);
-        // Continue without order items
+        // Order items are optional, continue without them
+        if (import.meta.env.DEV) {
+          console.warn('Could not fetch order items:', itemsErr);
+        }
       }
 
       const order: Order = {
         id: String(orderData.id),
-        payment_id: orderData.payment_id || '',
-        status: orderData.status || orderData.order_status || 'paid',
+        payment_id: orderData.payment_id || undefined,
+        payment_method: orderData.payment_method || undefined,
+        status: orderData.payment_status || orderData.status || orderData.order_status || 'paid',
         customer_name: orderData.customer_name || '',
         address: orderData.address || '',
         phone: orderData.phone || '',
-        total: Number(orderData.total || orderData.amount || 0),
+        total: Number(orderData.total || (orderData.amount ? orderData.amount / 100 : 0) || 0),
         created_at: orderData.created_at,
         order_items: orderItems,
       };
 
       setOrder(order);
     } catch (error: any) {
-      console.error('Error fetching order:', error);
+      if (import.meta.env.DEV) {
+        console.error('Error fetching order:', error);
+      }
       setError(error?.message || 'Failed to load order. Please try again.');
       setOrder(null);
     } finally {
@@ -336,6 +356,11 @@ const OrderTracking = () => {
                         src={item.image_url || '/placeholder.svg'}
                         alt={item.name}
                         className="w-20 h-20 object-cover rounded"
+                        loading="lazy"
+                        onError={(e) => {
+                          const target = e.currentTarget as HTMLImageElement;
+                          target.src = '/placeholder.svg';
+                        }}
                       />
                       <div className="flex-1">
                         <h4 className="font-semibold">{item.name}</h4>
@@ -369,10 +394,17 @@ const OrderTracking = () => {
                   {format(new Date(order.created_at), 'MMM dd, yyyy hh:mm a')}
                 </p>
               </div>
-              {order.payment_id && (
+              {order.payment_id ? (
                 <div>
                   <p className="text-sm text-muted-foreground">Payment ID</p>
                   <p className="font-semibold text-xs break-all">{order.payment_id}</p>
+                  <p className="text-xs text-green-600 mt-1">✓ Paid via Razorpay</p>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-sm text-muted-foreground">Payment Method</p>
+                  <p className="font-semibold text-orange-600">Cash on Delivery</p>
+                  <p className="text-xs text-muted-foreground mt-1">Pay when order arrives</p>
                 </div>
               )}
               <div>

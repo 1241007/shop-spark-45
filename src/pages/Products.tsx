@@ -20,7 +20,9 @@ export default function Index() {
         .select("*")
 
       if (error) {
-        console.error("Error fetching products:", error.message)
+        if (import.meta.env.DEV) {
+          console.error("Error fetching products:", error.message);
+        }
       } else {
         setProducts(data || [])
       }
@@ -40,6 +42,11 @@ export default function Index() {
             src={product.image}
             alt={product.name}
             className="w-full h-40 object-cover rounded"
+            loading="lazy"
+            onError={(e) => {
+              const target = e.currentTarget as HTMLImageElement;
+              target.src = '/placeholder.svg';
+            }}
           />
           <h2 className="text-lg font-bold mt-2">{product.name}</h2>
           <p className="text-gray-700">₹{(product as any).original_price || product.price}</p>

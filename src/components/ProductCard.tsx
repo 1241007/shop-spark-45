@@ -114,6 +114,7 @@ const ProductCard = ({ product }: ProductCardProps) => {
             src={productImage}
             alt={product.name}
             className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
+            loading="lazy"
             onError={(e) => {
               const target = e.currentTarget as HTMLImageElement;
               if (target.src.indexOf('/placeholder.svg') === -1) {

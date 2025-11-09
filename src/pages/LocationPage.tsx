@@ -42,7 +42,9 @@ const LocationPage: React.FC = () => {
           toast.success('Location detected successfully!');
         },
         (error) => {
-          console.error('Geolocation error:', error);
+          if (import.meta.env.DEV) {
+            console.error('Geolocation error:', error);
+          }
           toast.error('Location access denied. Please enter manually.');
           setLoading(false);
           setShowManualInput(true);

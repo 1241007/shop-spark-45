@@ -95,7 +95,9 @@ export function useProducts() {
 
       setProducts(transform((data as Product[]) || []));
     } catch (err) {
-      console.error('Error fetching products:', err);
+      if (import.meta.env.DEV) {
+        console.error('Error fetching products:', err);
+      }
       setError(err instanceof Error ? err.message : 'Failed to fetch products');
     } finally {
       setLoading(false);

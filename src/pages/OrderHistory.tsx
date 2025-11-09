@@ -10,7 +10,8 @@ import { format } from 'date-fns';
 
 interface Order {
   id: string;
-  payment_id: string;
+  payment_id?: string;
+  payment_method?: string;
   status: string;
   customer_name: string;
   address: string;
@@ -51,18 +52,20 @@ const OrderHistory = () => {
       }
 
       // Fetch orders only for the logged-in user
-      // Only show orders with payment_id (real paid orders, not test/fake orders)
+      // Show both paid orders (with payment_id) and COD orders (with payment_method='cod' or status='pending')
+      // First get all orders, then filter in code to show real orders
       const query = supabase
         .from('orders')
         .select('*')
         .eq('user_id', user.id)
-        .not('payment_id', 'is', null) // Only orders with payment_id (real orders)
         .order('created_at', { ascending: false });
 
       const { data: ordersData, error: ordersError } = await query;
 
       if (ordersError) {
-        console.error('Error fetching orders:', ordersError);
+        if (import.meta.env.DEV) {
+          console.error('Error fetching orders:', ordersError);
+        }
         throw ordersError;
       }
 
@@ -72,9 +75,24 @@ const OrderHistory = () => {
         return;
       }
 
+      // Filter to show only real orders (paid orders with payment_id OR COD orders)
+      const realOrders = ordersData.filter((order: any) => {
+        return order.payment_id || 
+               order.payment_method === 'cod' || 
+               order.payment_status === 'cod-confirmed' ||
+               order.status === 'pending' ||
+               order.status === 'cod-confirmed';
+      });
+
+      if (realOrders.length === 0) {
+        setOrders([]);
+        setLoading(false);
+        return;
+      }
+
       // Fetch order_items for each order separately
       const ordersWithItems = await Promise.all(
-        ordersData.map(async (order: any) => {
+        realOrders.map(async (order: any) => {
           let orderItems: OrderItem[] = [];
           try {
             const { data: itemsData, error: itemsError } = await supabase
@@ -86,12 +104,16 @@ const OrderHistory = () => {
               orderItems = itemsData as OrderItem[];
             }
           } catch (itemsErr) {
-            console.warn(`Could not fetch order items for order ${order.id}:`, itemsErr);
+            // Order items are optional, continue without them
+            if (import.meta.env.DEV) {
+              console.warn(`Could not fetch order items for order ${order.id}:`, itemsErr);
+            }
           }
 
           return {
             id: String(order.id),
-            payment_id: order.payment_id || '',
+            payment_id: order.payment_id || undefined,
+            payment_method: order.payment_method || undefined,
             status: order.status || order.order_status || 'paid',
             customer_name: order.customer_name || '',
             address: order.address || '',
@@ -105,7 +127,9 @@ const OrderHistory = () => {
 
       setOrders(ordersWithItems);
     } catch (error: any) {
-      console.error('Error fetching orders:', error);
+      if (import.meta.env.DEV) {
+        console.error('Error fetching orders:', error);
+      }
       setOrders([]);
     } finally {
       setLoading(false);
@@ -116,6 +140,9 @@ const OrderHistory = () => {
     switch (status?.toLowerCase()) {
       case 'paid':
         return <Badge className="bg-green-500">Confirmed</Badge>;
+      case 'pending':
+      case 'cod':
+        return <Badge className="bg-orange-500">Pending (COD)</Badge>;
       case 'processing':
         return <Badge className="bg-blue-500">Processing</Badge>;
       case 'shipped':
@@ -195,6 +222,9 @@ const OrderHistory = () => {
                     <p className="text-sm text-muted-foreground mt-1">
                       Placed on {format(new Date(order.created_at), 'MMM dd, yyyy hh:mm a')}
                     </p>
+                    {order.payment_method === 'cod' && (
+                      <p className="text-xs text-orange-600 font-medium mt-1">💰 Cash on Delivery</p>
+                    )}
                   </div>
                   {getStatusBadge(order.status)}
                 </div>
@@ -210,6 +240,11 @@ const OrderHistory = () => {
                             src={item.image_url || '/placeholder.svg'}
                             alt={item.name}
                             className="w-16 h-16 object-cover rounded"
+                            loading="lazy"
+                            onError={(e) => {
+                              const target = e.currentTarget as HTMLImageElement;
+                              target.src = '/placeholder.svg';
+                            }}
                           />
                           <div className="flex-1">
                             <h4 className="font-semibold">{item.name}</h4>

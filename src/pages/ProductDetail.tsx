@@ -113,6 +113,7 @@ const ProductDetail = () => {
               src={product.image || product.image_url || '/placeholder.svg'}
               alt={product.name}
               className="w-full h-96 object-cover rounded-lg"
+              loading="lazy"
               onError={(e) => {
                 const target = e.currentTarget as HTMLImageElement;
                 if (target.src.indexOf('/placeholder.svg') === -1) {

@@ -121,8 +121,8 @@ const Cart = ({ showLabel = false }: CartProps) => {
                                   src={imageUrl}
                                   alt={item.name}
                                   className="w-full h-full object-cover"
-                                  onError={() => handleImageError(item.id)}
                                   loading="lazy"
+                                  onError={() => handleImageError(item.id)}
                                 />
                               )}
                             </div>
