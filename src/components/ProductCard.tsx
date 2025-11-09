@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useCart } from "@/contexts/CartContext";
+import { useToast } from "@/hooks/use-toast";
 
 interface ProductCardProps {
   product: {
@@ -13,6 +14,7 @@ interface ProductCardProps {
     price?: number;
     current_price?: number;
     base_price?: number;
+    original_price?: number;
     stock_quantity?: number;
     stock_status?: 'in_stock' | 'low_stock' | 'out_of_stock';
     image?: string;
@@ -31,7 +33,9 @@ interface ProductCardProps {
 const ProductCard = ({ product }: ProductCardProps) => {
   const { addToCart } = useCart();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [quantity, setQuantity] = useState(1);
+  const [isWishlisted, setIsWishlisted] = useState(false);
   
   // Use original_price as the main price (since price column is not updating)
   const productPrice = product.original_price || product.current_price || product.price || 0;
@@ -60,12 +64,29 @@ const ProductCard = ({ product }: ProductCardProps) => {
   };
 
   const handleBuyNow = () => {
-    handleAddToCart();
-    navigate('/checkout');
+    // Navigate to product detail page which has the checkout modal
+    navigate(`/product/${product.id}`);
   };
 
   const handleProductClick = () => {
     navigate(`/product/${product.id}`);
+  };
+
+  const handleWishlistToggle = () => {
+    const newWishlistState = !isWishlisted;
+    setIsWishlisted(newWishlistState);
+    
+    // Show toast notification
+    toast({
+      title: newWishlistState ? "Added to Wishlist" : "Removed from Wishlist",
+      description: newWishlistState 
+        ? `${product.name} has been added to your wishlist`
+        : `${product.name} has been removed from your wishlist`,
+      variant: "default",
+    });
+    
+    // TODO: Add wishlist functionality with Supabase to persist state
+    // For now, just toggle the visual state
   };
 
   const getStockStatusColor = (status: string) => {
@@ -121,23 +142,28 @@ const ProductCard = ({ product }: ProductCardProps) => {
           </div>
 
           {/* Wishlist and Buy Now buttons */}
-          <div className="absolute top-2 right-2 flex flex-col gap-2">
+          <div className="absolute top-2 right-2 flex flex-col gap-2 z-10">
             <Button
               variant="ghost"
               size="icon"
-              className="bg-white/80 hover:bg-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 w-8 h-8"
-              onClick={(e) => e.stopPropagation()}
+              className="bg-white/90 hover:bg-white shadow-md hover:shadow-lg opacity-0 group-hover:opacity-100 transition-all duration-300 w-9 h-9"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleWishlistToggle();
+              }}
+              title="Add to Wishlist"
             >
-              <Heart className="h-4 w-4" />
+              <Heart className={`h-4 w-4 ${isWishlisted ? 'fill-red-500 text-red-500' : ''}`} />
             </Button>
             {stockStatus !== 'out_of_stock' && (
               <Button
                 size="sm"
-                className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-xs px-2 py-1 h-8"
+                className="bg-primary text-primary-foreground hover:bg-primary/90 opacity-0 group-hover:opacity-100 transition-all duration-300 text-xs px-2 py-1 h-8 shadow-md hover:shadow-lg"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleBuyNow();
                 }}
+                title="Buy Now"
               >
                 <Zap className="h-3 w-3 mr-1" />
                 Buy

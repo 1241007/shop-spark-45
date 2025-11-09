@@ -128,7 +128,7 @@ export default function CheckoutModal({
 
     const options = {
       key: razorpayKey,
-      amount: Math.round(totalAmount * 100), // paise (must be integer)
+      amount: Math.round(totalAmount * 100), // Razorpay requires amount in paise (smallest currency unit)
       currency: "INR",
       name: "ShopSpark",
       description: `Order for ${product.name} (Qty: ${quantity})`,
@@ -138,12 +138,11 @@ export default function CheckoutModal({
           const paymentId = response.razorpay_payment_id;
 
           // ✅ Insert order into Supabase
-          // The amount column is bigint NOT NULL, store amount in smallest currency unit (paise)
-          // Convert to integer to ensure it's a valid bigint
-          const amountInPaise = Math.round(totalAmount * 100);
+          // Store total in rupees (as integer)
+          const totalInRupees = Math.round(totalAmount);
           
-          // Validate amount is not zero
-          if (amountInPaise <= 0) {
+          // Validate total is not zero
+          if (totalInRupees <= 0) {
             throw new Error('Invalid order amount. Please check the product price.');
           }
           
@@ -158,7 +157,7 @@ export default function CheckoutModal({
                 customer_name: shippingDetails.name,
                 address: shippingDetails.address + (shippingDetails.pincode ? `, PIN: ${shippingDetails.pincode}` : ''),
                 phone: shippingDetails.phone,
-                amount: amountInPaise, // Store in paise (bigint) - required column
+                total: totalInRupees, // Store total in rupees
                 currency: "INR",
                 product_ids: [product.id.toString()]
               },
@@ -169,7 +168,7 @@ export default function CheckoutModal({
       if (orderErr) {
         console.error('Order creation error:', orderErr);
         console.error('Error details:', JSON.stringify(orderErr, null, 2));
-        console.error('Attempted to insert amount:', amountInPaise);
+        console.error('Attempted to insert total:', totalInRupees);
         throw new Error(`Failed to create order: ${orderErr.message}. Please refresh the page and try again.`);
       }
 
