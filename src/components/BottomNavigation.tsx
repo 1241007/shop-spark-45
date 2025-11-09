@@ -1,12 +1,19 @@
-import { Home, User, ShoppingCart, Menu } from "lucide-react";
+import { Home, User, ShoppingCart, Package, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Link, useLocation } from "react-router-dom";
+import { useCart } from "@/contexts/CartContext";
+import Cart from "./Cart";
 
 const BottomNavigation = () => {
+  const location = useLocation();
+  const { totalItems } = useCart();
+  
   const navItems = [
-    { icon: Home, label: "Home", active: true },
-    { icon: User, label: "Profile", active: false },
-    { icon: ShoppingCart, label: "Cart", active: false, badge: "0" },
-    { icon: Menu, label: "Menu", active: false },
+    { icon: Home, label: "Home", path: "/", active: location.pathname === "/" },
+    { icon: Package, label: "Orders", path: "/orders", active: location.pathname === "/orders" },
+    { icon: ShoppingCart, label: "Cart", isCart: true, badge: totalItems > 0 ? totalItems.toString() : undefined },
+    { icon: HelpCircle, label: "Help", path: "/help", active: location.pathname === "/help" },
+    { icon: User, label: "Profile", path: "/auth", active: location.pathname === "/auth" },
   ];
 
   return (
@@ -14,23 +21,38 @@ const BottomNavigation = () => {
       <div className="flex items-center justify-around py-2">
         {navItems.map((item) => {
           const IconComponent = item.icon;
-          return (
-            <Button
-              key={item.label}
-              variant="ghost"
-              size="sm"
-              className={`flex flex-col items-center p-2 h-auto relative ${
-                item.active ? 'text-primary' : 'text-muted-foreground'
-              }`}
-            >
+          const content = (
+            <>
               <IconComponent className="h-5 w-5 mb-1" />
               <span className="text-xs">{item.label}</span>
               {item.badge && (
-                <span className="absolute top-0 right-2 bg-accent text-accent-foreground text-xs rounded-full w-4 h-4 flex items-center justify-center font-semibold">
+                <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs rounded-full w-5 h-5 flex items-center justify-center font-semibold">
                   {item.badge}
                 </span>
               )}
-            </Button>
+            </>
+          );
+          
+          if (item.isCart) {
+            return (
+              <div key={item.label}>
+                <Cart showLabel={true} />
+              </div>
+            );
+          }
+          
+          return (
+            <Link key={item.label} to={item.path!}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`flex flex-col items-center p-2 h-auto relative w-full ${
+                  item.active ? 'text-primary' : 'text-muted-foreground'
+                }`}
+              >
+                {content}
+              </Button>
+            </Link>
           );
         })}
       </div>

@@ -1,4 +1,4 @@
-import { Search, ShoppingCart, User, Menu, LogOut } from "lucide-react";
+import { Search, ShoppingCart, User, Menu, LogOut, Package, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
@@ -96,6 +96,18 @@ const Header = () => {
                 </Link>
               </>
             )}
+            <Link to="/orders">
+              <Button variant="ghost" size="sm" className="relative">
+                <Package className="h-5 w-5" />
+                <span className="hidden sm:inline ml-2">Orders</span>
+              </Button>
+            </Link>
+            <Link to="/help">
+              <Button variant="ghost" size="sm" className="relative">
+                <HelpCircle className="h-5 w-5" />
+                <span className="hidden sm:inline ml-2">Help</span>
+              </Button>
+            </Link>
             <Cart />
             <Button variant="ghost" size="sm" className="md:hidden">
               <Menu className="h-5 w-5" />

@@ -12,7 +12,8 @@ import { Product } from '@/hooks/useProducts';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCart } from '@/contexts/CartContext';
-import { Loader2, CreditCard, CheckCircle2 } from 'lucide-react';
+import { Loader2, CreditCard, CheckCircle2, Package, ExternalLink } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 // Razorpay types
 declare global {
@@ -58,6 +59,8 @@ export default function CheckoutModal({
   const { toast } = useToast();
   const { user } = useAuth();
   const { clearCart } = useCart();
+  const navigate = useNavigate();
+  const [orderId, setOrderId] = useState<string | null>(null);
 
   // Check if Razorpay is loaded
   useEffect(() => {
@@ -118,7 +121,8 @@ export default function CheckoutModal({
 
     setLoading(true);
 
-    const totalAmount = (product.current_price || product.price) * quantity;
+    // Use original_price as the main price (since price column is not updating)
+    const totalAmount = (product.original_price || product.current_price || product.price) * quantity;
 
     const options = {
       key: razorpayKey,
@@ -132,11 +136,11 @@ export default function CheckoutModal({
           const paymentId = response.razorpay_payment_id;
 
           // ✅ Insert order into Supabase
-          const { data: order, error: orderErr } = await supabase
+      const { data: order, error: orderErr } = await supabase
             .from("orders")
-            .insert([
-              {
-                user_id: user?.id ?? null,
+        .insert([
+          {
+            user_id: user?.id ?? null,
                 payment_id: paymentId,
                 status: "paid",
                 order_status: "paid",
@@ -148,69 +152,63 @@ export default function CheckoutModal({
                 currency: "INR",
                 product_ids: [product.id.toString()]
               },
-            ])
-            .select()
-            .single();
+        ])
+        .select()
+        .single();
 
-          if (orderErr) throw orderErr;
+      if (orderErr) throw orderErr;
 
           // Create order items
-          const { error: itemsErr } = await supabase
-            .from('order_items')
-            .insert([
-              {
-                order_id: order.id,
-                product_id: product.id,
-                name: product.name,
-                price: product.current_price || product.price,
-                image_url: product.image || product.image_url || null,
-                quantity: quantity
-              }
-            ]);
+      const { error: itemsErr } = await supabase
+        .from('order_items')
+        .insert([
+          {
+            order_id: order.id,
+            product_id: product.id,
+            name: product.name,
+                price: product.original_price || product.current_price || product.price,
+            image_url: product.image || product.image_url || null,
+            quantity: quantity
+          }
+        ]);
 
-          if (itemsErr) throw itemsErr;
+      if (itemsErr) throw itemsErr;
 
-          // Fetch current stock to avoid race conditions, then decrement atomically
-          const { data: current, error: fetchErr } = await supabase
-            .from('products')
-            .select('stock_quantity')
-            .eq('id', product.id)
-            .single();
+      // Fetch current stock to avoid race conditions, then decrement atomically
+      const { data: current, error: fetchErr } = await supabase
+        .from('products')
+        .select('stock_quantity')
+        .eq('id', product.id)
+        .single();
 
-          if (fetchErr) throw fetchErr;
+      if (fetchErr) throw fetchErr;
 
-          const newStockQty = Math.max(0, ((current?.stock_quantity as number) || 0) - quantity);
+      const newStockQty = Math.max(0, ((current?.stock_quantity as number) || 0) - quantity);
 
-          const { error: stockError } = await supabase
-            .from('products')
-            .update({ stock_quantity: newStockQty })
-            .eq('id', product.id);
+      const { error: stockError } = await supabase
+        .from('products')
+        .update({ stock_quantity: newStockQty })
+        .eq('id', product.id);
 
-          if (stockError) throw stockError;
+      if (stockError) throw stockError;
 
-          // Update local state immediately
-          if (updateProductStock) updateProductStock(product.id, quantity);
+      // Update local state immediately
+      if (updateProductStock) updateProductStock(product.id, quantity);
 
           // ✅ Refresh product list
           if (refetchProducts) {
             refetchProducts();
           }
 
+          setOrderId(order.id);
           setPaymentSuccess(true);
-          onPurchaseComplete();
-          clearCart();
+      onPurchaseComplete();
+      clearCart();
 
           toast({
             title: "Payment Successful! 🎉",
-            description: `Your order for ${quantity} ${product.name}(s) has been confirmed. Order ID: ${order.id}`,
+            description: `Your order has been confirmed. Order ID: ${String(order.id).slice(0, 8).toUpperCase()}`,
           });
-
-          // Close modal after 2 seconds
-          setTimeout(() => {
-            onClose();
-            setShippingDetails({ name: '', address: '', pincode: '', phone: '' });
-            setPaymentSuccess(false);
-          }, 2000);
         } catch (err: any) {
           console.error(err);
           toast({
@@ -218,7 +216,7 @@ export default function CheckoutModal({
             description: err?.message || "Payment was successful but order creation failed. Please contact support.",
             variant: "destructive"
           });
-        } finally {
+    } finally {
           setLoading(false);
         }
       },
@@ -258,7 +256,8 @@ export default function CheckoutModal({
     razorpay.open();
   };
 
-  const totalAmount = (product.current_price || product.price) * quantity;
+  // Use original_price as the main price (since price column is not updating)
+  const totalAmount = (product.original_price || product.current_price || product.price) * quantity;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -269,13 +268,57 @@ export default function CheckoutModal({
         </DialogHeader>
 
         {paymentSuccess ? (
-          <div className="flex flex-col items-center justify-center py-12 space-y-4 animate-in fade-in duration-500">
-            <div className="rounded-full bg-green-100 p-4 animate-in zoom-in duration-300">
-              <CheckCircle2 className="h-12 w-12 text-green-600" />
+          <div className="flex flex-col items-center justify-center py-8 space-y-6 animate-in fade-in duration-500">
+            <div className="rounded-full bg-gradient-to-br from-green-400 to-green-600 p-6 animate-in zoom-in duration-300 shadow-lg">
+              <CheckCircle2 className="h-16 w-16 text-white" />
             </div>
-            <div className="text-center space-y-2">
-              <h3 className="text-xl font-semibold text-green-600">Payment Successful!</h3>
-              <p className="text-muted-foreground">Your order has been confirmed.</p>
+            <div className="text-center space-y-3">
+              <h3 className="text-2xl font-bold text-green-600">Order Confirmed! 🎉</h3>
+              <p className="text-muted-foreground text-lg">
+                Your order has been placed successfully
+              </p>
+              {orderId && (
+                <div className="bg-muted/50 rounded-lg p-4 mt-4">
+                  <p className="text-sm text-muted-foreground mb-1">Order ID</p>
+                  <p className="font-mono font-semibold text-lg">{String(orderId).slice(0, 8).toUpperCase()}</p>
+                </div>
+              )}
+              <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                <Button
+                  onClick={() => {
+                    if (orderId) {
+                      navigate(`/order/${orderId}`);
+                      onClose();
+                    }
+                  }}
+                  className="bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary"
+                >
+                  <Package className="h-4 w-4 mr-2" />
+                  Track Order
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    navigate('/orders');
+                    onClose();
+                  }}
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  View All Orders
+                </Button>
+              </div>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  onClose();
+                  setShippingDetails({ name: '', address: '', pincode: '', phone: '' });
+                  setPaymentSuccess(false);
+                  setOrderId(null);
+                }}
+                className="mt-2"
+              >
+                Continue Shopping
+              </Button>
             </div>
           </div>
         ) : (
@@ -300,17 +343,17 @@ export default function CheckoutModal({
                     <p className="text-2xl font-bold text-primary">₹{totalAmount.toLocaleString()}</p>
                     <p className="text-sm text-muted-foreground">Total</p>
                   </div>
-                </div>
               </div>
             </div>
+          </div>
 
             {/* Shipping Details Form */}
-            <div className="space-y-4">
+          <div className="space-y-4">
               <h3 className="font-semibold text-lg flex items-center gap-2">
                 <CreditCard className="h-5 w-5" />
                 Shipping Details
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="name" className="text-sm font-medium">Full Name *</Label>
                   <Input 
@@ -356,20 +399,20 @@ export default function CheckoutModal({
                   className="transition-all focus:ring-2 focus:ring-primary"
                   disabled={loading}
                 />
-              </div>
             </div>
+          </div>
 
             {/* Action Buttons */}
             <div className="flex gap-3 pt-4">
-              <Button 
-                variant="outline" 
-                onClick={onClose}
+            <Button 
+              variant="outline" 
+              onClick={onClose}
                 className="flex-1 transition-all hover:scale-105"
                 disabled={loading}
-              >
-                Cancel
-              </Button>
-              <Button 
+            >
+              Cancel
+            </Button>
+            <Button 
                 onClick={handlePayment}
                 className="flex-1 bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary transition-all hover:scale-105 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={loading}
@@ -385,7 +428,7 @@ export default function CheckoutModal({
                     Buy Now
                   </>
                 )}
-              </Button>
+            </Button>
             </div>
 
             {/* Security Note */}

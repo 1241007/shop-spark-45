@@ -53,7 +53,7 @@ const SearchResults = ({ query, results, isSearching, onResultClick }: SearchRes
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="font-semibold text-primary">
-                        ₹{(product.current_price || product.price || 0).toLocaleString()}
+                        ₹{(product.original_price || product.current_price || product.price || 0).toLocaleString()}
                       </span>
                       {product.originalPrice && (
                         <span className="text-xs text-muted-foreground line-through">

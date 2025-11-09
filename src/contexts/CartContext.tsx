@@ -34,15 +34,15 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       if (user?.id) {
         const { data, error } = await supabase
           .from('cart_items')
-          .select(`id, product_id, quantity, products:product_id ( id, name, price, image )`)
+          .select(`id, product_id, quantity, products:product_id ( id, name, price, original_price, image, image_url )`)
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
         if (!error && data) {
           const mapped: CartItem[] = data.map((row: any) => ({
             id: row.products?.id ?? row.product_id,
             name: row.products?.name ?? 'Unknown',
-            price: Number(row.products?.price ?? 0),
-            image: row.products?.image || '/placeholder.svg',
+            price: Number(row.products?.original_price ?? row.products?.price ?? 0),
+            image: row.products?.image_url || row.products?.image || '/placeholder.svg',
             quantity: row.quantity,
             product_id: row.product_id,
           }));

@@ -33,7 +33,8 @@ const ProductCard = ({ product }: ProductCardProps) => {
   const navigate = useNavigate();
   const [quantity, setQuantity] = useState(1);
   
-  const productPrice = product.current_price || product.price || 0;
+  // Use original_price as the main price (since price column is not updating)
+  const productPrice = product.original_price || product.current_price || product.price || 0;
   const productBasePrice = product.base_price || product.originalPrice;
   const productImage = product.image_url || product.image || '';
   const productReviews = product.reviews_count || product.reviews || 0;

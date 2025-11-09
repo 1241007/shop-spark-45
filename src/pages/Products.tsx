@@ -42,7 +42,7 @@ export default function Index() {
             className="w-full h-40 object-cover rounded"
           />
           <h2 className="text-lg font-bold mt-2">{product.name}</h2>
-          <p className="text-gray-700">₹{product.price}</p>
+          <p className="text-gray-700">₹{(product as any).original_price || product.price}</p>
         </div>
       ))}
     </div>

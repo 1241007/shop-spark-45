@@ -62,6 +62,9 @@ export function useProducts() {
       const category = row.category ?? null;
       const stockQty = typeof row.stock_quantity === 'number' ? row.stock_quantity : 0;
 
+      // Use original_price as the main price (since price column is not updating)
+      const mainPrice = row.original_price ?? row.price ?? 0;
+      
       return {
         ...row,
         image,
@@ -69,7 +72,10 @@ export function useProducts() {
         reviews,
         category,
         stock_quantity: stockQty,
-        current_price: row.price,
+        // Override price with original_price (original_price takes priority)
+        price: mainPrice,
+        original_price: row.original_price ?? row.price ?? null,
+        current_price: mainPrice,
         stock_status: stockQty === 0 ? 'out_of_stock' : 'in_stock',
       } as Product;
     });

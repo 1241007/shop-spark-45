@@ -10,7 +10,7 @@ const Index = () => {
   const { products, loading } = useProducts();
   
   const trendingProducts = products.slice(0, 4);
-  const dealProducts = products.filter(p => p.originalPrice && p.originalPrice > (p.current_price || p.price));
+  const dealProducts = products.filter(p => p.originalPrice && p.originalPrice > (p.original_price || p.current_price || p.price));
   
   if (loading) {
     return (

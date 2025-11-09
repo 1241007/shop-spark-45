@@ -14,6 +14,9 @@ import ProductDetail from "./pages/ProductDetail";
 import CategoryPage from "./pages/CategoryPage";
 import LocationPage from "./pages/LocationPage";
 import Auth from "./pages/Auth";
+import OrderHistory from "./pages/OrderHistory";
+import OrderTracking from "./pages/OrderTracking";
+import Help from "./pages/Help";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -35,6 +38,9 @@ const App = () => (
                   <Route path="/category/:category" element={<CategoryPage />} />
                   <Route path="/location" element={<LocationPage />} />
                   <Route path="/auth" element={<Auth />} />
+                  <Route path="/orders" element={<OrderHistory />} />
+                  <Route path="/order/:id" element={<OrderTracking />} />
+                  <Route path="/help" element={<Help />} />
                   {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                   <Route path="*" element={<NotFound />} />
                 </Routes>

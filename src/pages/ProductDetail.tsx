@@ -53,7 +53,7 @@ const ProductDetail = () => {
     addToCart({
       id: product.id,
       name: product.name,
-      price: product.current_price,
+      price: product.original_price || product.current_price,
       image: product.image || product.image_url || '/placeholder.svg'
     }, quantity);
     toast({
@@ -91,7 +91,7 @@ const ProductDetail = () => {
     }
   };
 
-  const isPriceIncreased = product.current_price > product.base_price;
+  const isPriceIncreased = (product.original_price || product.current_price) > product.base_price;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -164,7 +164,7 @@ const ProductDetail = () => {
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <span className="text-3xl font-bold text-primary">
-                ₹{product.current_price.toLocaleString()}
+                ₹{(product.original_price || product.current_price || 0).toLocaleString()}
               </span>
               {isPriceIncreased && (
                 <span className="text-lg text-muted-foreground line-through">
