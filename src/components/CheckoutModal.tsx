@@ -121,12 +121,14 @@ export default function CheckoutModal({
 
     setLoading(true);
 
-    // Use original_price as the main price (since price column is not updating)
-    const totalAmount = (product.original_price || product.current_price || product.price) * quantity;
+  // Use original_price as the main price (since price column is not updating)
+  // Ensure we have a valid price, default to 0 if all are missing
+  const productPrice = product.original_price || product.current_price || product.price || 0;
+  const totalAmount = productPrice * quantity;
 
     const options = {
       key: razorpayKey,
-      amount: totalAmount * 100, // paise
+      amount: Math.round(totalAmount * 100), // paise (must be integer)
       currency: "INR",
       name: "ShopSpark",
       description: `Order for ${product.name} (Qty: ${quantity})`,
@@ -136,6 +138,15 @@ export default function CheckoutModal({
           const paymentId = response.razorpay_payment_id;
 
           // ✅ Insert order into Supabase
+          // The amount column is bigint NOT NULL, store amount in smallest currency unit (paise)
+          // Convert to integer to ensure it's a valid bigint
+          const amountInPaise = Math.round(totalAmount * 100);
+          
+          // Validate amount is not zero
+          if (amountInPaise <= 0) {
+            throw new Error('Invalid order amount. Please check the product price.');
+          }
+          
       const { data: order, error: orderErr } = await supabase
             .from("orders")
         .insert([
@@ -147,8 +158,7 @@ export default function CheckoutModal({
                 customer_name: shippingDetails.name,
                 address: shippingDetails.address + (shippingDetails.pincode ? `, PIN: ${shippingDetails.pincode}` : ''),
                 phone: shippingDetails.phone,
-                total: totalAmount,
-                amount: totalAmount,
+                amount: amountInPaise, // Store in paise (bigint) - required column
                 currency: "INR",
                 product_ids: [product.id.toString()]
               },
@@ -156,7 +166,12 @@ export default function CheckoutModal({
         .select()
         .single();
 
-      if (orderErr) throw orderErr;
+      if (orderErr) {
+        console.error('Order creation error:', orderErr);
+        console.error('Error details:', JSON.stringify(orderErr, null, 2));
+        console.error('Attempted to insert amount:', amountInPaise);
+        throw new Error(`Failed to create order: ${orderErr.message}. Please refresh the page and try again.`);
+      }
 
           // Create order items
       const { error: itemsErr } = await supabase
@@ -257,7 +272,20 @@ export default function CheckoutModal({
   };
 
   // Use original_price as the main price (since price column is not updating)
-  const totalAmount = (product.original_price || product.current_price || product.price) * quantity;
+  // Ensure we have a valid price, default to 0 if all are missing
+  const productPrice = product.original_price || product.current_price || product.price || 0;
+  const totalAmount = productPrice * quantity;
+  
+  // Debug: Log price calculation
+  if (totalAmount === 0) {
+    console.warn('Total amount is 0!', {
+      original_price: product.original_price,
+      current_price: product.current_price,
+      price: product.price,
+      quantity,
+      productId: product.id
+    });
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
