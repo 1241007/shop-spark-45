@@ -15,7 +15,7 @@ const ProductDetail = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { addToCart } = useCart();
-  const { getProductById, getSimilarProducts, loading, updateProductStock } = useProducts();
+  const { getProductById, getSimilarProducts, loading, updateProductStock, refetch } = useProducts();
   const [quantity, setQuantity] = useState(1);
   const [showCheckout, setShowCheckout] = useState(false);
   
@@ -269,6 +269,7 @@ const ProductDetail = () => {
         quantity={quantity}
         onPurchaseComplete={handlePurchaseComplete}
         updateProductStock={updateProductStock}
+        refetchProducts={refetch}
       />
     </div>
   );

@@ -39,6 +39,7 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 - Supabase (Authentication & Database)
+- Razorpay (Payment Gateway)
 
 ## Environment Variables
 
@@ -46,15 +47,19 @@ This project requires the following environment variables:
 
 - `VITE_SUPABASE_URL` - Your Supabase project URL
 - `VITE_SUPABASE_ANON_KEY` - Your Supabase anonymous/public key
+- `VITE_RAZORPAY_KEY` - Your Razorpay test/live key (for payment integration)
 
 Create a `.env` file in the root directory with these variables:
 
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key-here
+VITE_RAZORPAY_KEY=rzp_test_xxxxxxxxxxxxx
 ```
 
-You can find these values in your Supabase project: Project Settings → API
+**Where to find these values:**
+- Supabase: Project Settings → API
+- Razorpay: Dashboard → Settings → API Keys (use Test Key for development)
 
 ## Deployment to Render
 
@@ -78,6 +83,7 @@ You can find these values in your Supabase project: Project Settings → API
    - Add the following variables:
      - `VITE_SUPABASE_URL` - Your Supabase project URL
      - `VITE_SUPABASE_ANON_KEY` - Your Supabase anonymous key
+     - `VITE_RAZORPAY_KEY` - Your Razorpay test/live key
      - `PORT` - (Optional, defaults to 3000)
 
 4. **Deploy:**
