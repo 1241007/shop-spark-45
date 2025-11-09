@@ -1,3 +1,7 @@
+// ✅ Razorpay Checkout Modal – full integration
+// Works with Test Key on localhost, Live Key on deployed site (Render)
+// Handles Supabase order insert, success/failure UI, and automatic key switching
+
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -49,8 +53,7 @@ export default function CheckoutModal({
     pincode: '',
     phone: ''
   });
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isPaymentLoading, setIsPaymentLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
@@ -70,190 +73,189 @@ export default function CheckoutModal({
     }));
   };
 
-  const handlePaymentSuccess = async (paymentResponse: any) => {
-    setIsPaymentLoading(true);
-    
-    try {
-      const totalAmount = (product.current_price || product.price) * quantity;
-      const paymentId = paymentResponse.razorpay_payment_id;
+  // ✅ Auto-switch Razorpay key
+  const razorpayKey =
+    window.location.hostname.includes("localhost") ||
+    window.location.hostname.includes("127.0.0.1")
+      ? import.meta.env.VITE_RAZORPAY_KEY_TEST
+      : import.meta.env.VITE_RAZORPAY_KEY_LIVE;
 
-      // Create order with payment_id and status='paid'
-      const { data: order, error: orderErr } = await supabase
-        .from('orders')
-        .insert([
-          {
-            user_id: user?.id ?? null,
-            shipping_name: shippingDetails.name,
-            shipping_address: shippingDetails.address,
-            shipping_pincode: shippingDetails.pincode,
-            shipping_phone: shippingDetails.phone,
-            total_amount: totalAmount,
-            status: 'paid',
-            payment_id: paymentId
-          }
-        ])
-        .select()
-        .single();
-
-      if (orderErr) throw orderErr;
-
-      // Create order items
-      const { error: itemsErr } = await supabase
-        .from('order_items')
-        .insert([
-          {
-            order_id: order.id,
-            product_id: product.id,
-            name: product.name,
-            price: product.current_price || product.price,
-            image_url: product.image || product.image_url || null,
-            quantity: quantity
-          }
-        ]);
-
-      if (itemsErr) throw itemsErr;
-
-      // Fetch current stock to avoid race conditions, then decrement atomically
-      const { data: current, error: fetchErr } = await supabase
-        .from('products')
-        .select('stock_quantity')
-        .eq('id', product.id)
-        .single();
-
-      if (fetchErr) throw fetchErr;
-
-      const newStockQty = Math.max(0, ((current?.stock_quantity as number) || 0) - quantity);
-
-      const { error: stockError } = await supabase
-        .from('products')
-        .update({ stock_quantity: newStockQty })
-        .eq('id', product.id);
-
-      if (stockError) throw stockError;
-
-      // Update local state immediately
-      if (updateProductStock) updateProductStock(product.id, quantity);
-
-      // Refresh product list
-      if (refetchProducts) {
-        refetchProducts();
-      }
-
-      setPaymentSuccess(true);
-      onPurchaseComplete();
-      clearCart();
-
-      setTimeout(() => {
-        toast({
-          title: "Payment Successful! 🎉",
-          description: `Your order for ${quantity} ${product.name}(s) has been confirmed. Order ID: ${order.id}`,
-        });
-      }, 0);
-
-      // Close modal after 2 seconds
-      setTimeout(() => {
-        onClose();
-        setShippingDetails({ name: '', address: '', pincode: '', phone: '' });
-        setPaymentSuccess(false);
-      }, 2000);
-    } catch (error: any) {
-      console.error('Payment success handler error:', error);
-      toast({ 
-        title: "Order Creation Failed", 
-        description: error?.message || "Payment was successful but order creation failed. Please contact support.", 
-        variant: "destructive" 
-      });
-    } finally {
-      setIsPaymentLoading(false);
-    }
-  };
-
-  const handlePaymentFailure = (error: any) => {
-    console.error('Payment failed:', error);
-    toast({ 
-      title: "Payment Failed", 
-      description: error?.error?.description || "Payment could not be processed. Please try again.", 
-      variant: "destructive" 
-    });
-    setIsProcessing(false);
-  };
-
-  const handleBuyNow = async () => {
-    if (!shippingDetails.name || !shippingDetails.address || !shippingDetails.pincode) {
-      toast({ 
-        title: "Missing Information", 
-        description: "Please fill in all required fields", 
-        variant: "destructive" 
+  const handlePayment = async () => {
+    if (!shippingDetails.name || !shippingDetails.address || !shippingDetails.phone) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields",
+        variant: "destructive"
       });
       return;
     }
-    if (shippingDetails.pincode.length !== 6) {
-      toast({ 
-        title: "Invalid Pincode", 
-        description: "Please enter a valid 6-digit pincode", 
-        variant: "destructive" 
+    if (shippingDetails.pincode && shippingDetails.pincode.length !== 6) {
+      toast({
+        title: "Invalid Pincode",
+        description: "Please enter a valid 6-digit pincode",
+        variant: "destructive"
       });
       return;
     }
 
     if (!window.Razorpay) {
-      toast({ 
-        title: "Payment Gateway Error", 
-        description: "Payment gateway is not available. Please refresh the page.", 
-        variant: "destructive" 
+      toast({
+        title: "Payment Gateway Error",
+        description: "Payment gateway is not available. Please refresh the page.",
+        variant: "destructive"
       });
       return;
     }
 
-    setIsProcessing(true);
-
-    try {
-      const totalAmount = (product.current_price || product.price) * quantity;
-      const razorpayKey = import.meta.env.VITE_RAZORPAY_KEY;
-
-      if (!razorpayKey) {
-        throw new Error('Razorpay key not configured. Please add VITE_RAZORPAY_KEY to your environment variables.');
-      }
-
-      const options = {
-        key: razorpayKey,
-        amount: totalAmount * 100, // Convert to paise
-        currency: 'INR',
-        name: 'EcommercePro',
-        description: `Order for ${product.name} (Qty: ${quantity})`,
-        image: '/favicon.ico',
-        prefill: {
-          name: shippingDetails.name,
-          email: user?.email || '',
-          contact: shippingDetails.phone || ''
-        },
-        theme: {
-          color: '#2563eb'
-        },
-        handler: handlePaymentSuccess,
-        modal: {
-          ondismiss: () => {
-            setIsProcessing(false);
-          }
-        },
-        notes: {
-          address: shippingDetails.address,
-          pincode: shippingDetails.pincode
-        }
-      };
-
-      const razorpay = new window.Razorpay(options);
-      razorpay.on('payment.failed', handlePaymentFailure);
-      razorpay.open();
-    } catch (error: any) {
-      console.error('Error opening Razorpay:', error);
-      toast({ 
-        title: "Payment Error", 
-        description: error?.message || "Failed to initialize payment. Please try again.", 
-        variant: "destructive" 
+    if (!razorpayKey) {
+      toast({
+        title: "Payment Error",
+        description: "Razorpay key not configured. Please check your environment variables.",
+        variant: "destructive"
       });
-      setIsProcessing(false);
+      return;
     }
+
+    setLoading(true);
+
+    const totalAmount = (product.current_price || product.price) * quantity;
+
+    const options = {
+      key: razorpayKey,
+      amount: totalAmount * 100, // paise
+      currency: "INR",
+      name: "ShopSpark",
+      description: `Order for ${product.name} (Qty: ${quantity})`,
+      image: "/favicon.ico",
+      handler: async function (response: any) {
+        try {
+          const paymentId = response.razorpay_payment_id;
+
+          // ✅ Insert order into Supabase
+          const { data: order, error: orderErr } = await supabase
+            .from("orders")
+            .insert([
+              {
+                user_id: user?.id ?? null,
+                payment_id: paymentId,
+                status: "paid",
+                order_status: "paid",
+                customer_name: shippingDetails.name,
+                address: shippingDetails.address + (shippingDetails.pincode ? `, PIN: ${shippingDetails.pincode}` : ''),
+                phone: shippingDetails.phone,
+                total: totalAmount,
+                amount: totalAmount,
+                currency: "INR",
+                product_ids: [product.id.toString()]
+              },
+            ])
+            .select()
+            .single();
+
+          if (orderErr) throw orderErr;
+
+          // Create order items
+          const { error: itemsErr } = await supabase
+            .from('order_items')
+            .insert([
+              {
+                order_id: order.id,
+                product_id: product.id,
+                name: product.name,
+                price: product.current_price || product.price,
+                image_url: product.image || product.image_url || null,
+                quantity: quantity
+              }
+            ]);
+
+          if (itemsErr) throw itemsErr;
+
+          // Fetch current stock to avoid race conditions, then decrement atomically
+          const { data: current, error: fetchErr } = await supabase
+            .from('products')
+            .select('stock_quantity')
+            .eq('id', product.id)
+            .single();
+
+          if (fetchErr) throw fetchErr;
+
+          const newStockQty = Math.max(0, ((current?.stock_quantity as number) || 0) - quantity);
+
+          const { error: stockError } = await supabase
+            .from('products')
+            .update({ stock_quantity: newStockQty })
+            .eq('id', product.id);
+
+          if (stockError) throw stockError;
+
+          // Update local state immediately
+          if (updateProductStock) updateProductStock(product.id, quantity);
+
+          // ✅ Refresh product list
+          if (refetchProducts) {
+            refetchProducts();
+          }
+
+          setPaymentSuccess(true);
+          onPurchaseComplete();
+          clearCart();
+
+          toast({
+            title: "Payment Successful! 🎉",
+            description: `Your order for ${quantity} ${product.name}(s) has been confirmed. Order ID: ${order.id}`,
+          });
+
+          // Close modal after 2 seconds
+          setTimeout(() => {
+            onClose();
+            setShippingDetails({ name: '', address: '', pincode: '', phone: '' });
+            setPaymentSuccess(false);
+          }, 2000);
+        } catch (err: any) {
+          console.error(err);
+          toast({
+            title: "Order Creation Failed",
+            description: err?.message || "Payment was successful but order creation failed. Please contact support.",
+            variant: "destructive"
+          });
+        } finally {
+          setLoading(false);
+        }
+      },
+      prefill: {
+        name: shippingDetails.name,
+        contact: shippingDetails.phone,
+        email: user?.email || ''
+      },
+      theme: {
+        color: "#0d6efd",
+      },
+      modal: {
+        ondismiss: function () {
+          setLoading(false);
+          toast({
+            title: "Payment Cancelled",
+            description: "Payment was cancelled.",
+            variant: "destructive"
+          });
+        },
+      },
+      notes: {
+        address: shippingDetails.address,
+        pincode: shippingDetails.pincode
+      }
+    };
+
+    const razorpay = new window.Razorpay(options);
+    razorpay.on('payment.failed', function (error: any) {
+      setLoading(false);
+      toast({
+        title: "Payment Failed",
+        description: error?.error?.description || "Payment could not be processed. Please try again.",
+        variant: "destructive"
+      });
+    });
+    razorpay.open();
   };
 
   const totalAmount = (product.current_price || product.price) * quantity;
@@ -317,18 +319,18 @@ export default function CheckoutModal({
                     onChange={(e) => handleInputChange('name', e.target.value)}
                     placeholder="John Doe"
                     className="transition-all focus:ring-2 focus:ring-primary"
-                    disabled={isProcessing || isPaymentLoading}
+                    disabled={loading}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="phone" className="text-sm font-medium">Phone Number</Label>
+                  <Label htmlFor="phone" className="text-sm font-medium">Phone Number *</Label>
                   <Input 
                     id="phone" 
                     value={shippingDetails.phone} 
                     onChange={(e) => handleInputChange('phone', e.target.value)}
                     placeholder="+91 9876543210"
                     className="transition-all focus:ring-2 focus:ring-primary"
-                    disabled={isProcessing || isPaymentLoading}
+                    disabled={loading}
                   />
                 </div>
               </div>
@@ -340,11 +342,11 @@ export default function CheckoutModal({
                   onChange={(e) => handleInputChange('address', e.target.value)}
                   placeholder="Street address, apartment, suite"
                   className="transition-all focus:ring-2 focus:ring-primary"
-                  disabled={isProcessing || isPaymentLoading}
+                  disabled={loading}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="pincode" className="text-sm font-medium">Pincode *</Label>
+                <Label htmlFor="pincode" className="text-sm font-medium">Pincode</Label>
                 <Input 
                   id="pincode" 
                   value={shippingDetails.pincode} 
@@ -352,7 +354,7 @@ export default function CheckoutModal({
                   placeholder="123456"
                   maxLength={6}
                   className="transition-all focus:ring-2 focus:ring-primary"
-                  disabled={isProcessing || isPaymentLoading}
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -363,16 +365,16 @@ export default function CheckoutModal({
                 variant="outline" 
                 onClick={onClose}
                 className="flex-1 transition-all hover:scale-105"
-                disabled={isProcessing || isPaymentLoading}
+                disabled={loading}
               >
                 Cancel
               </Button>
               <Button 
-                onClick={handleBuyNow}
+                onClick={handlePayment}
                 className="flex-1 bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary transition-all hover:scale-105 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={isProcessing || isPaymentLoading}
+                disabled={loading}
               >
-                {isProcessing || isPaymentLoading ? (
+                {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     Processing...
