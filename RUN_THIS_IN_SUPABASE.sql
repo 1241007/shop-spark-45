@@ -1,16 +1,8 @@
 -- ============================================
--- COMPLETE ORDERS TABLE SCHEMA - PRODUCTION READY
+-- FIX SCHEMA MISMATCH - RUN THIS IN SUPABASE SQL EDITOR
 -- ============================================
--- This migration creates/updates the orders table with ALL required columns
--- Run this in Supabase SQL Editor
--- ============================================
--- 
--- INSTRUCTIONS:
--- 1. Copy this ENTIRE file
--- 2. Go to Supabase Dashboard → SQL Editor
--- 3. Paste and click "Run"
--- 4. Wait 30 seconds for schema cache to refresh
--- 5. Test ordering - both Razorpay and COD will work!
+-- Copy this ENTIRE file and paste into Supabase SQL Editor
+-- Click "Run" and wait 30 seconds
 -- ============================================
 
 -- Step 1: Create orders table if it doesn't exist
@@ -305,3 +297,5 @@ ORDER BY policyname;
 -- ✅ DONE! All columns and policies are now correct.
 -- Both Razorpay and COD orders will work perfectly!
 -- Orders will be visible in order history for both authenticated users and guests.
+-- Wait 30 seconds for schema cache to refresh, then test ordering!
+

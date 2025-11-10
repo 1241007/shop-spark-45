@@ -38,3 +38,4 @@ WHERE table_schema = 'public'
 AND table_name = 'orders'
 AND column_name = 'payment_method';
 
+

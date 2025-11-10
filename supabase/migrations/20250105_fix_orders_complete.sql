@@ -87,3 +87,4 @@ AND table_name = 'orders'
 AND column_name IN ('amount', 'total', 'payment_id', 'status', 'customer_name', 'phone')
 ORDER BY column_name;
 
+

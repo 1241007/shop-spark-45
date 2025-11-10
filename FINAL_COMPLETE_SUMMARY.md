@@ -341,3 +341,5 @@ if (paymentMethod === 'razorpay' && paymentId) {
 
 **Next Step:** Run `RUN_THIS_FINAL_MIGRATION.sql` in Supabase, then deploy!
 
+
+

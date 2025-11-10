@@ -172,3 +172,5 @@ SELECT policyname, cmd FROM pg_policies WHERE tablename = 'orders';
 
 -- ✅ DONE! Now test ordering - both Razorpay and COD will work!
 
+
+

@@ -180,3 +180,5 @@ ORDER BY column_name;
 -- ✅ DONE! All required columns are now in place.
 -- Try placing an order again - both Razorpay and COD should work!
 
+
+

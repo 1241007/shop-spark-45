@@ -76,12 +76,13 @@ const OrderHistory = () => {
       }
 
       // Filter to show only real orders (paid orders with payment_id OR COD orders)
+      // COD orders have payment_method='cod' or payment_status='cod-confirmed'
       const realOrders = ordersData.filter((order: any) => {
         return order.payment_id || 
                order.payment_method === 'cod' || 
                order.payment_status === 'cod-confirmed' ||
-               order.status === 'pending' ||
-               order.status === 'cod-confirmed';
+               order.status === 'cod-confirmed' ||
+               order.order_status === 'cod-confirmed';
       });
 
       if (realOrders.length === 0) {
@@ -114,11 +115,11 @@ const OrderHistory = () => {
             id: String(order.id),
             payment_id: order.payment_id || undefined,
             payment_method: order.payment_method || undefined,
-            status: order.status || order.order_status || 'paid',
-            customer_name: order.customer_name || '',
+            status: order.payment_status || order.status || order.order_status || 'paid',
+            customer_name: order.full_name || order.customer_name || '',
             address: order.address || '',
             phone: order.phone || '',
-            total: Number(order.total || order.amount || 0),
+            total: Number(order.total || (order.amount ? order.amount / 100 : 0) || 0),
             created_at: order.created_at,
             order_items: orderItems,
           } as Order;
@@ -140,6 +141,8 @@ const OrderHistory = () => {
     switch (status?.toLowerCase()) {
       case 'paid':
         return <Badge className="bg-green-500">Confirmed</Badge>;
+      case 'cod-confirmed':
+        return <Badge className="bg-orange-500">COD Confirmed</Badge>;
       case 'pending':
       case 'cod':
         return <Badge className="bg-orange-500">Pending (COD)</Badge>;

@@ -197,3 +197,5 @@ ORDER BY policyname;
 -- ✅ DONE! All columns exist and RLS policies allow inserts.
 -- Both Razorpay and COD orders should work now!
 
+
+

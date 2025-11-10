@@ -1,8 +1,5 @@
-// ✅ Razorpay Checkout Modal – full integration
-// Works with Test Key on localhost, Live Key on deployed site (Render)
-// Handles Supabase order insert, success/failure UI, and automatic key switching
-
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,9 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCart } from '@/contexts/CartContext';
 import { Loader2, CreditCard, CheckCircle2, Package, ExternalLink, Wallet } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 
-// Razorpay types
 declare global {
   interface Window {
     Razorpay: any;
@@ -57,20 +52,17 @@ export default function CheckoutModal({
   const [loading, setLoading] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'razorpay' | 'cod'>('razorpay');
+  const [orderId, setOrderId] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const { clearCart } = useCart();
   const navigate = useNavigate();
-  const [orderId, setOrderId] = useState<string | null>(null);
 
-  // Check if Razorpay is loaded
   useEffect(() => {
-    if (isOpen && !window.Razorpay) {
-      if (import.meta.env.DEV) {
-        console.warn('Razorpay SDK not loaded');
-      }
+    if (isOpen && !window.Razorpay && paymentMethod === 'razorpay') {
+      console.warn('Razorpay SDK not loaded');
     }
-  }, [isOpen]);
+  }, [isOpen, paymentMethod]);
 
   const handleInputChange = (field: keyof ShippingDetails, value: string) => {
     setShippingDetails(prev => ({
@@ -79,138 +71,118 @@ export default function CheckoutModal({
     }));
   };
 
-  // ✅ Auto-switch Razorpay key
   const razorpayKey =
     window.location.hostname.includes("localhost") ||
     window.location.hostname.includes("127.0.0.1")
       ? import.meta.env.VITE_RAZORPAY_KEY_TEST
       : import.meta.env.VITE_RAZORPAY_KEY_LIVE;
 
+  const productPrice = product.original_price || product.current_price || product.price || 0;
+  const totalAmount = productPrice * quantity;
+  const amountInPaise = Math.round(totalAmount * 100);
+  const totalInRupees = Math.round(totalAmount);
+
   // Common function to create order in Supabase
-  const createOrder = async (paymentMethod: 'razorpay' | 'cod', paymentId?: string) => {
-    const productPrice = product.original_price || product.current_price || product.price || 0;
-    const totalAmount = productPrice * quantity;
-    const amountInPaise = Math.round(totalAmount * 100);
-    const totalInRupees = Math.round(totalAmount);
-    
-    // Validate amount is not zero
+  const createOrder = async (paymentMethodType: 'razorpay' | 'cod', paymentId?: string) => {
+    // Validate amount
     if (amountInPaise <= 0 || totalInRupees <= 0) {
       throw new Error('Invalid order amount. Please check the product price.');
     }
 
-    // Create order with appropriate status and payment method
-    // Use payment_status as primary field (matches user requirements)
-    const paymentStatus = paymentMethod === 'cod' ? 'cod-confirmed' : 'paid';
+    // Determine payment status based on payment method
+    const paymentStatus = paymentMethodType === 'cod' ? 'cod-confirmed' : 'paid';
     
-    const orderData: any = {
+    // Prepare order data with all required fields and safe fallbacks
+    const orderData: Record<string, any> = {
       user_id: user?.id ?? null,
-      payment_method: paymentMethod, // 'razorpay' or 'cod'
-      payment_status: paymentStatus, // 'paid', 'cod-confirmed', or 'pending'
-      status: paymentStatus, // For backward compatibility
-      order_status: paymentStatus, // For backward compatibility
-      customer_name: shippingDetails.name,
-      address: shippingDetails.address + (shippingDetails.pincode ? `, PIN: ${shippingDetails.pincode}` : ''),
-      phone: shippingDetails.phone,
-      amount: amountInPaise, // Store in paise (smallest currency unit)
-      total: totalInRupees, // Store in rupees (for display)
-      currency: "INR",
-      product_ids: [product.id.toString()]
+      payment_method: paymentMethodType,
+      payment_status: paymentStatus,
+      order_status: paymentStatus,
+      status: paymentStatus,
+      full_name: shippingDetails.name || null,
+      customer_name: shippingDetails.name || null, // Backward compatibility
+      phone: shippingDetails.phone || null,
+      address: shippingDetails.address || null,
+      pincode: shippingDetails.pincode || null,
+      product_name: product.name || null,
+      quantity: quantity || 1,
+      price: Math.round(productPrice) || null,
+      amount: amountInPaise || 0,
+      total: totalInRupees || null,
+      currency: 'INR',
+      product_ids: Array.isArray([product.id.toString()]) ? [product.id.toString()] : []
     };
 
     // Add payment_id only for Razorpay payments
-    if (paymentMethod === 'razorpay' && paymentId) {
+    if (paymentMethodType === 'razorpay' && paymentId) {
       orderData.payment_id = paymentId;
     }
 
-    // Insert order into Supabase with proper error handling
-    const { data: order, error: orderErr } = await supabase
-      .from("orders")
-      .insert([orderData])
+    // Insert order into Supabase
+    const { data: order, error: orderErr } = await (supabase
+      .from("orders" as any)
+      .insert([orderData] as any)
       .select()
-      .single();
+      .single()) as { data: any; error: any };
 
     if (orderErr) {
-      // Enhanced error logging for debugging
-      if (import.meta.env.DEV) {
-        console.error('Order creation error:', orderErr);
-        console.error('Order data attempted:', JSON.stringify(orderData, null, 2));
-        console.error('User ID:', user?.id);
-        console.error('Payment method:', paymentMethod);
-      }
+      // Enhanced error handling with safe fallback messages
+      let errorMessage = 'Failed to create order. Please try again.';
       
-      let errorMessage = `Failed to create order: ${orderErr.message}`;
-      
-      // Provide helpful error messages based on error type
-      if (orderErr.message.includes('amount') || orderErr.message.includes('schema cache') || orderErr.message.includes('column')) {
-        errorMessage = `Database schema error: Missing required columns.\n\nQUICK FIX:\n1. Open Supabase Dashboard → SQL Editor\n2. Copy/paste code from supabase/migrations/20250108_final_orders_schema.sql\n3. Click Run\n4. Wait 30 seconds, then try ordering again\n\nThis will add ALL required columns and fix RLS policies.`;
+      if (orderErr.message.includes('column') || orderErr.message.includes('schema')) {
+        errorMessage = 'Database column mismatch — please ensure orders table is updated.';
       } else if (orderErr.message.includes('permission') || orderErr.message.includes('policy') || orderErr.message.includes('RLS')) {
-        errorMessage = `Permission error: RLS policy blocking insert.\n\nQUICK FIX:\nRun the migration: supabase/migrations/20250108_final_orders_schema.sql\nThis will fix the RLS policies to allow order creation.`;
+        errorMessage = 'Permission error. Please contact support if this persists.';
       } else if (orderErr.message.includes('null value') || orderErr.message.includes('NOT NULL')) {
-        errorMessage = `Missing required field: ${orderErr.message}\n\nPlease ensure all shipping details are filled.`;
+        errorMessage = 'Missing required information. Please fill all fields.';
+      } else {
+        errorMessage = `Order creation failed: ${orderErr.message}`;
       }
       
       throw new Error(errorMessage);
     }
     
-    // Verify order was created
     if (!order || !order.id) {
       throw new Error('Order was created but no order ID was returned. Please check your order history.');
     }
 
-    // Create order items (optional - continue even if this fails)
+    // Create order items (non-blocking - continue even if this fails)
     try {
-      const { error: itemsErr } = await supabase
-        .from('order_items')
+      await (supabase
+        .from('order_items' as any)
         .insert([
           {
             order_id: order.id,
             product_id: product.id,
             name: product.name,
-            price: product.original_price || product.current_price || product.price,
+            price: productPrice,
             image_url: product.image || product.image_url || null,
             quantity: quantity
           }
-        ]);
-
-      if (itemsErr && import.meta.env.DEV) {
-        console.warn('Order items creation failed (non-critical):', itemsErr);
-      }
+        ] as any));
     } catch (itemsErr) {
-      // Order items are optional - log but don't fail the order
-      if (import.meta.env.DEV) {
-        console.warn('Order items creation error (non-critical):', itemsErr);
-      }
+      // Log but don't fail the order
+      console.warn('Order items creation failed (non-critical):', itemsErr);
     }
 
-    // Update stock (critical - must succeed)
+    // Update stock (non-blocking - continue even if this fails)
     try {
-      const { data: current, error: fetchErr } = await supabase
+      const { data: current } = await supabase
         .from('products')
         .select('stock_quantity')
         .eq('id', product.id)
         .single();
 
-      if (fetchErr) {
-        if (import.meta.env.DEV) {
-          console.error('Failed to fetch current stock:', fetchErr);
-        }
-        // Continue - stock update is important but shouldn't block order creation
-      } else {
-        const newStockQty = Math.max(0, ((current?.stock_quantity as number) || 0) - quantity);
-        const { error: stockError } = await supabase
+      if (current) {
+        const newStockQty = Math.max(0, ((current.stock_quantity as number) || 0) - quantity);
+        await supabase
           .from('products')
           .update({ stock_quantity: newStockQty })
           .eq('id', product.id);
-
-        if (stockError && import.meta.env.DEV) {
-          console.error('Failed to update stock:', stockError);
-        }
       }
     } catch (stockErr) {
       // Log but don't fail the order
-      if (import.meta.env.DEV) {
-        console.warn('Stock update error (non-critical):', stockErr);
-      }
+      console.warn('Stock update failed (non-critical):', stockErr);
     }
 
     // Update local state
@@ -221,6 +193,7 @@ export default function CheckoutModal({
   };
 
   const handleCashOnDelivery = async () => {
+    // Validate required fields
     if (!shippingDetails.name || !shippingDetails.address || !shippingDetails.phone) {
       toast({
         title: "Missing Information",
@@ -229,6 +202,7 @@ export default function CheckoutModal({
       });
       return;
     }
+    
     if (shippingDetails.pincode && shippingDetails.pincode.length !== 6) {
       toast({
         title: "Invalid Pincode",
@@ -244,7 +218,7 @@ export default function CheckoutModal({
       const order = await createOrder('cod');
 
       // Show success
-      setOrderId(order.id);
+      setOrderId(String(order.id));
       setPaymentSuccess(true);
       onPurchaseComplete();
       clearCart();
@@ -260,29 +234,20 @@ export default function CheckoutModal({
         onClose();
       }, 2000);
     } catch (err: any) {
-      if (import.meta.env.DEV) {
-        console.error('COD order creation failed:', err);
-      }
+      console.error('COD order creation failed:', err);
       
-          // Show detailed error message for schema issues
-          let errorDescription = err?.message || "Failed to create order. Please try again.";
-          if (err?.message?.includes('amount') || err?.message?.includes('schema cache') || err?.message?.includes('column')) {
-            errorDescription = "Database schema needs update. Run: supabase/migrations/20250108_final_orders_schema.sql in Supabase SQL Editor.";
-          } else if (err?.message?.includes('permission') || err?.message?.includes('policy') || err?.message?.includes('RLS')) {
-            errorDescription = "Permission error: RLS policy blocking. Run the migration: supabase/migrations/20250108_final_orders_schema.sql to fix RLS policies.";
-          }
-          
-          toast({
-            title: "Order Creation Failed",
-            description: errorDescription,
-            variant: "destructive"
-          });
+      toast({
+        title: "Order Creation Failed",
+        description: err?.message || "Failed to create order. Please try again.",
+        variant: "destructive"
+      });
     } finally {
       setLoading(false);
     }
   };
 
   const handlePayment = async () => {
+    // Validate required fields
     if (!shippingDetails.name || !shippingDetails.address || !shippingDetails.phone) {
       toast({
         title: "Missing Information",
@@ -291,6 +256,7 @@ export default function CheckoutModal({
       });
       return;
     }
+    
     if (shippingDetails.pincode && shippingDetails.pincode.length !== 6) {
       toast({
         title: "Invalid Pincode",
@@ -320,14 +286,9 @@ export default function CheckoutModal({
 
     setLoading(true);
 
-  // Use original_price as the main price (since price column is not updating)
-  // Ensure we have a valid price, default to 0 if all are missing
-  const productPrice = product.original_price || product.current_price || product.price || 0;
-  const totalAmount = productPrice * quantity;
-
     const options = {
       key: razorpayKey,
-      amount: Math.round(totalAmount * 100), // Razorpay requires amount in paise (smallest currency unit)
+      amount: amountInPaise,
       currency: "INR",
       name: "ShopSpark",
       description: `Order for ${product.name} (Qty: ${quantity})`,
@@ -337,13 +298,12 @@ export default function CheckoutModal({
           const paymentId = response.razorpay_payment_id;
           const order = await createOrder('razorpay', paymentId);
 
-          // ✅ Only show success after BOTH payment AND order creation succeed
-          setOrderId(order.id);
+          // Show success
+          setOrderId(String(order.id));
           setPaymentSuccess(true);
           onPurchaseComplete();
           clearCart();
 
-          // Show success message
           toast({
             title: "Order Placed Successfully! 🎉",
             description: `Your order has been confirmed. Order ID: ${String(order.id).slice(0, 8).toUpperCase()}`,
@@ -355,14 +315,11 @@ export default function CheckoutModal({
             onClose();
           }, 2000);
         } catch (err: any) {
-          // Log error for debugging (only in development)
-          if (import.meta.env.DEV) {
-            console.error('Payment success but order creation failed:', err);
-          }
+          console.error('Payment success but order creation failed:', err);
           
           toast({
             title: "Order Creation Failed",
-            description: err?.message || "Payment was successful but order creation failed. Please contact support with your payment ID.",
+            description: err?.message || "Payment was successful but order creation failed. Please contact support.",
             variant: "destructive"
           });
         } finally {
@@ -406,9 +363,7 @@ export default function CheckoutModal({
       razorpay.open();
     } catch (err: any) {
       setLoading(false);
-      if (import.meta.env.DEV) {
-        console.error('Error opening Razorpay:', err);
-      }
+      console.error('Error opening Razorpay:', err);
       toast({
         title: "Payment Error",
         description: err?.message || "Failed to initialize payment. Please try again.",
@@ -416,16 +371,6 @@ export default function CheckoutModal({
       });
     }
   };
-
-  // Use original_price as the main price (since price column is not updating)
-  // Ensure we have a valid price, default to 0 if all are missing
-  const productPrice = product.original_price || product.current_price || product.price || 0;
-  const totalAmount = productPrice * quantity;
-  
-  // Validate price before checkout (only in development)
-  if (totalAmount === 0 && import.meta.env.DEV) {
-    console.warn('Warning: Total amount is 0. Check product pricing.');
-  }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -490,7 +435,7 @@ export default function CheckoutModal({
                   setShippingDetails({ name: '', address: '', pincode: '', phone: '' });
                   setPaymentSuccess(false);
                   setOrderId(null);
-                  setPaymentMethod('razorpay'); // Reset to default
+                  setPaymentMethod('razorpay');
                 }}
                 className="mt-2"
               >
@@ -502,7 +447,7 @@ export default function CheckoutModal({
           <div className="space-y-6 animate-in fade-in duration-300">
             {/* Product Summary */}
             <div className="bg-gradient-to-r from-primary/5 to-primary/10 p-5 rounded-xl border border-primary/20 transition-all hover:shadow-lg">
-            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4">
                 <div className="relative">
                   <img 
                     src={product.image || product.image_url || '/placeholder.svg'} 
@@ -513,16 +458,16 @@ export default function CheckoutModal({
                     {quantity}
                   </div>
                 </div>
-              <div className="flex-1">
+                <div className="flex-1">
                   <h3 className="font-semibold text-lg mb-1">{product.name}</h3>
                   <p className="text-sm text-muted-foreground mb-2">Quantity: {quantity}</p>
                   <div className="flex items-baseline gap-2">
                     <p className="text-2xl font-bold text-primary">₹{totalAmount.toLocaleString()}</p>
                     <p className="text-sm text-muted-foreground">Total</p>
                   </div>
+                </div>
               </div>
             </div>
-          </div>
 
             {/* Payment Method Selection */}
             <div className="space-y-4">
@@ -593,12 +538,12 @@ export default function CheckoutModal({
             </div>
 
             {/* Shipping Details Form */}
-          <div className="space-y-4">
+            <div className="space-y-4">
               <h3 className="font-semibold text-lg flex items-center gap-2">
                 <Package className="h-5 w-5" />
                 Shipping Details
               </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="name" className="text-sm font-medium">Full Name *</Label>
                   <Input 
@@ -644,8 +589,8 @@ export default function CheckoutModal({
                   className="transition-all focus:ring-2 focus:ring-primary"
                   disabled={loading}
                 />
+              </div>
             </div>
-          </div>
 
             {/* Action Buttons */}
             <div className="flex flex-col gap-3 pt-4">

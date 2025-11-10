@@ -160,3 +160,5 @@ If you still have issues after running the migration:
 
 **After running the migration, both payment methods should work perfectly!** 🎉
 
+
+
