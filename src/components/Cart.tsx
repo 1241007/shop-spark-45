@@ -41,6 +41,7 @@ const Cart = ({ showLabel = false }: CartProps) => {
   const { items, removeFromCart, updateQuantity, clearCart, totalItems, totalPrice } = useCart();
   const navigate = useNavigate();
   const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
+  const [isOpen, setIsOpen] = useState(false);
 
   const handleImageError = (itemId: number) => {
     setImageErrors(prev => ({ ...prev, [itemId]: true }));
@@ -48,13 +49,12 @@ const Cart = ({ showLabel = false }: CartProps) => {
 
   const handleCheckout = () => {
     if (items.length === 0) return;
-    // Navigate to first product's detail page for checkout
-    // Or create a cart checkout page
-    navigate('/');
+    setIsOpen(false);
+    navigate('/checkout');
   };
 
   return (
-    <Sheet>
+    <Sheet open={isOpen} onOpenChange={setIsOpen}>
       <SheetTrigger asChild>
         <Button variant="ghost" size="sm" className={`relative ${showLabel ? 'flex flex-col items-center p-2 h-auto w-full' : ''}`}>
           <ShoppingCart className={`h-5 w-5 ${showLabel ? 'mb-1' : ''}`} />
@@ -230,7 +230,7 @@ const Cart = ({ showLabel = false }: CartProps) => {
 
                 <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 p-2 rounded-md">
                   <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                  <span>You can checkout individual items from product pages</span>
+                  <span>Checkout now supports the entire cart for quick payment</span>
                 </div>
               </div>
             </>

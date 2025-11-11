@@ -1,12 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Package, Truck, CheckCircle2, Clock, MapPin } from 'lucide-react';
+import { Package, Truck, CheckCircle2, Clock, MapPin, Loader2, Home as HomeIcon } from 'lucide-react';
 import { format } from 'date-fns';
+import { useToast } from '@/hooks/use-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface Order {
   id: string;
@@ -32,46 +43,46 @@ interface OrderItem {
 const OrderHistory = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
-  useEffect(() => {
-    fetchOrders();
-  }, [user]);
-
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async (showLoader = false) => {
     try {
-      setLoading(true);
+      if (showLoader) {
+        setLoading(true);
+      }
       
       // Only show orders for logged-in users
       // For guests, show empty state (no orders)
       if (!user?.id) {
         setOrders([]);
-        setLoading(false);
+        if (showLoader) {
+          setLoading(false);
+        }
         return;
       }
 
       // Fetch orders only for the logged-in user
       // Show both paid orders (with payment_id) and COD orders (with payment_method='cod' or status='pending')
       // First get all orders, then filter in code to show real orders
-      const query = supabase
+      const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
-        .select('*')
+        .select('*, order_items(*)')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      const { data: ordersData, error: ordersError } = await query;
-
       if (ordersError) {
-        if (import.meta.env.DEV) {
-          console.error('Error fetching orders:', ordersError);
-        }
         throw ordersError;
       }
 
       if (!ordersData || ordersData.length === 0) {
         setOrders([]);
-        setLoading(false);
+        if (showLoader) {
+          setLoading(false);
+        }
         return;
       }
 
@@ -91,51 +102,68 @@ const OrderHistory = () => {
         return;
       }
 
-      // Fetch order_items for each order separately
-      const ordersWithItems = await Promise.all(
-        realOrders.map(async (order: any) => {
-          let orderItems: OrderItem[] = [];
-          try {
-            const { data: itemsData, error: itemsError } = await supabase
-              .from('order_items')
-              .select('*')
-              .eq('order_id', order.id);
+      const ordersWithItems: Order[] = realOrders.map((order: any) => {
+        const orderItems = (order.order_items || []).map((item: any) => ({
+          id: String(item.id),
+          name: item.name,
+          price: Number(item.price || 0),
+          quantity: Number(item.quantity || 1),
+          image_url: item.image_url || null,
+        })) as OrderItem[];
 
-            if (!itemsError && itemsData) {
-              orderItems = itemsData as OrderItem[];
-            }
-          } catch (itemsErr) {
-            // Order items are optional, continue without them
-            if (import.meta.env.DEV) {
-              console.warn(`Could not fetch order items for order ${order.id}:`, itemsErr);
-            }
-          }
-
-          return {
-            id: String(order.id),
-            payment_id: order.payment_id || undefined,
-            payment_method: order.payment_method || undefined,
-            status: order.payment_status || order.status || order.order_status || 'paid',
-            customer_name: order.full_name || order.customer_name || '',
-            address: order.address || '',
-            phone: order.phone || '',
-            total: Number(order.total || (order.amount ? order.amount / 100 : 0) || 0),
-            created_at: order.created_at,
-            order_items: orderItems,
-          } as Order;
-        })
-      );
+        return {
+          id: String(order.id),
+          payment_id: order.payment_id || undefined,
+          payment_method: order.payment_method || undefined,
+          status: order.payment_status || order.status || order.order_status || 'paid',
+          customer_name: order.full_name || order.customer_name || '',
+          address: order.address || '',
+          phone: order.phone || '',
+          total: Number(order.total || (order.amount ? order.amount / 100 : 0) || 0),
+          created_at: order.created_at,
+          order_items: orderItems,
+        } as Order;
+      });
 
       setOrders(ordersWithItems);
     } catch (error: any) {
-      if (import.meta.env.DEV) {
-        console.error('Error fetching orders:', error);
-      }
+      toast({
+        title: 'Unable to fetch orders',
+        description: error?.message || 'Please try again later.',
+        variant: 'destructive',
+      });
       setOrders([]);
     } finally {
-      setLoading(false);
+      if (showLoader) {
+        setLoading(false);
+      }
     }
-  };
+  }, [toast, user?.id]);
+
+  useEffect(() => {
+    void fetchOrders(true);
+  }, [fetchOrders]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`orders-user-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders', filter: `user_id=eq.${user.id}` },
+        () => {
+          void fetchOrders();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchOrders, user?.id]);
 
   const getStatusBadge = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -152,6 +180,8 @@ const OrderHistory = () => {
         return <Badge className="bg-purple-500">Shipped</Badge>;
       case 'delivered':
         return <Badge className="bg-green-600">Delivered</Badge>;
+      case 'cancelled':
+        return <Badge variant="destructive">Cancelled</Badge>;
       default:
         return <Badge variant="secondary">{status || 'Pending'}</Badge>;
     }
@@ -165,6 +195,47 @@ const OrderHistory = () => {
     const daysToAdd = 2 + (orderIdHash % 2); // 2 or 3 days (consistent per order)
     deliveryDate.setDate(deliveryDate.getDate() + daysToAdd);
     return { date: deliveryDate, days: daysToAdd };
+  };
+
+  const canCancelOrder = (status: string) => {
+    const normalized = status?.toLowerCase() || '';
+    return ['pending', 'processing', 'cod', 'cod-confirmed'].includes(normalized);
+  };
+
+  const handleCancelOrder = async () => {
+    if (!cancelOrderId || !user?.id) return;
+
+    setIsCancelling(true);
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: 'cancelled',
+          payment_status: 'cancelled',
+          order_status: 'cancelled',
+        })
+        .eq('id', cancelOrderId)
+        .eq('user_id', user.id);
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: 'Order cancelled',
+        description: `Order ${cancelOrderId.slice(0, 8).toUpperCase()} has been cancelled.`,
+      });
+      setCancelOrderId(null);
+      void fetchOrders();
+    } catch (error: any) {
+      toast({
+        title: 'Unable to cancel order',
+        description: error?.message || 'Please try again later.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsCancelling(false);
+    }
   };
 
   if (loading) {
@@ -181,15 +252,18 @@ const OrderHistory = () => {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <Button
-        variant="ghost"
-        onClick={() => navigate(-1)}
-        className="mb-6"
-      >
-        <ArrowLeft className="h-4 w-4 mr-2" />
-        Back
-      </Button>
+    <>
+      <div className="container mx-auto px-4 py-8">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <Button
+          variant="ghost"
+          onClick={() => navigate("/", { replace: true })}
+          className="flex items-center gap-2"
+        >
+          <HomeIcon className="h-4 w-4" />
+          Back to Home
+        </Button>
+      </div>
 
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2">My Orders</h1>
@@ -294,17 +368,35 @@ const OrderHistory = () => {
                   </div>
 
                   {/* Total and Actions */}
-                  <div className="flex items-center justify-between pt-4 border-t">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-4 border-t">
                     <div>
                       <p className="text-sm text-muted-foreground">Total Amount</p>
                       <p className="text-2xl font-bold">₹{order.total.toLocaleString()}</p>
                     </div>
-                    <Button
-                      onClick={() => navigate(`/order/${String(order.id)}`)}
-                      variant="outline"
-                    >
-                      Track Order
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        onClick={() => navigate(`/order/${String(order.id)}`)}
+                        variant="outline"
+                      >
+                        Track Order
+                      </Button>
+                      {canCancelOrder(order.status) && (
+                        <Button
+                          variant="destructive"
+                          onClick={() => setCancelOrderId(order.id)}
+                          disabled={isCancelling && cancelOrderId === order.id}
+                        >
+                          {isCancelling && cancelOrderId === order.id ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Cancelling...
+                            </>
+                          ) : (
+                            'Cancel Order'
+                          )}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -312,7 +404,41 @@ const OrderHistory = () => {
           ))}
         </div>
       )}
-    </div>
+      </div>
+      <AlertDialog
+        open={!!cancelOrderId}
+        onOpenChange={(open) => {
+          if (!open && !isCancelling) {
+            setCancelOrderId(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel this order?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel this order? This action cannot be undone once confirmed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isCancelling}>Keep Order</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCancelOrder}
+              disabled={isCancelling}
+            >
+              {isCancelling ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Cancelling...
+                </>
+              ) : (
+                'Cancel Order'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 };
 

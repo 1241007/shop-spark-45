@@ -6,10 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Product } from '@/hooks/useProducts';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCart } from '@/contexts/CartContext';
-import { Loader2, CreditCard, CheckCircle2, Package, ExternalLink, Wallet } from 'lucide-react';
+import { Loader2, CreditCard, Package, Wallet } from 'lucide-react';
+import { createSupabaseOrder, ShippingDetails, OrderItemInput } from '@/lib/orders';
 
 declare global {
   interface Window {
@@ -25,13 +25,6 @@ interface CheckoutModalProps {
   onPurchaseComplete: () => void;
   updateProductStock?: (productId: number, quantity: number) => void;
   refetchProducts?: () => void;
-}
-
-interface ShippingDetails {
-  name: string;
-  address: string;
-  pincode: string;
-  phone: string;
 }
 
 export default function CheckoutModal({ 
@@ -50,9 +43,7 @@ export default function CheckoutModal({
     phone: ''
   });
   const [loading, setLoading] = useState(false);
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'razorpay' | 'cod'>('razorpay');
-  const [orderId, setOrderId] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const { clearCart } = useCart();
@@ -82,115 +73,15 @@ export default function CheckoutModal({
   const amountInPaise = Math.round(totalAmount * 100);
   const totalInRupees = Math.round(totalAmount);
 
-  // Common function to create order in Supabase
-  const createOrder = async (paymentMethodType: 'razorpay' | 'cod', paymentId?: string) => {
-    // Validate amount
-    if (amountInPaise <= 0 || totalInRupees <= 0) {
-      throw new Error('Invalid order amount. Please check the product price.');
-    }
-
-    // Determine payment status based on payment method
-    const paymentStatus = paymentMethodType === 'cod' ? 'cod-confirmed' : 'paid';
-    
-    // Prepare order data with all required fields and safe fallbacks
-    const orderData: Record<string, any> = {
-      user_id: user?.id ?? null,
-      payment_method: paymentMethodType,
-      payment_status: paymentStatus,
-      order_status: paymentStatus,
-      status: paymentStatus,
-      full_name: shippingDetails.name || null,
-      customer_name: shippingDetails.name || null, // Backward compatibility
-      phone: shippingDetails.phone || null,
-      address: shippingDetails.address || null,
-      pincode: shippingDetails.pincode || null,
-      product_name: product.name || null,
-      quantity: quantity || 1,
-      price: Math.round(productPrice) || null,
-      amount: amountInPaise || 0,
-      total: totalInRupees || null,
-      currency: 'INR',
-      product_ids: Array.isArray([product.id.toString()]) ? [product.id.toString()] : []
-    };
-
-    // Add payment_id only for Razorpay payments
-    if (paymentMethodType === 'razorpay' && paymentId) {
-      orderData.payment_id = paymentId;
-    }
-
-    // Insert order into Supabase
-    const { data: order, error: orderErr } = await (supabase
-      .from("orders" as any)
-      .insert([orderData] as any)
-      .select()
-      .single()) as { data: any; error: any };
-
-    if (orderErr) {
-      // Enhanced error handling with safe fallback messages
-      let errorMessage = 'Failed to create order. Please try again.';
-      
-      if (orderErr.message.includes('column') || orderErr.message.includes('schema')) {
-        errorMessage = 'Database column mismatch — please ensure orders table is updated.';
-      } else if (orderErr.message.includes('permission') || orderErr.message.includes('policy') || orderErr.message.includes('RLS')) {
-        errorMessage = 'Permission error. Please contact support if this persists.';
-      } else if (orderErr.message.includes('null value') || orderErr.message.includes('NOT NULL')) {
-        errorMessage = 'Missing required information. Please fill all fields.';
-      } else {
-        errorMessage = `Order creation failed: ${orderErr.message}`;
-      }
-      
-      throw new Error(errorMessage);
-    }
-    
-    if (!order || !order.id) {
-      throw new Error('Order was created but no order ID was returned. Please check your order history.');
-    }
-
-    // Create order items (non-blocking - continue even if this fails)
-    try {
-      await (supabase
-        .from('order_items' as any)
-        .insert([
-          {
-            order_id: order.id,
-            product_id: product.id,
-            name: product.name,
-            price: productPrice,
-            image_url: product.image || product.image_url || null,
-            quantity: quantity
-          }
-        ] as any));
-    } catch (itemsErr) {
-      // Log but don't fail the order
-      console.warn('Order items creation failed (non-critical):', itemsErr);
-    }
-
-    // Update stock (non-blocking - continue even if this fails)
-    try {
-      const { data: current } = await supabase
-        .from('products')
-        .select('stock_quantity')
-        .eq('id', product.id)
-        .single();
-
-      if (current) {
-        const newStockQty = Math.max(0, ((current.stock_quantity as number) || 0) - quantity);
-        await supabase
-          .from('products')
-          .update({ stock_quantity: newStockQty })
-          .eq('id', product.id);
-      }
-    } catch (stockErr) {
-      // Log but don't fail the order
-      console.warn('Stock update failed (non-critical):', stockErr);
-    }
-
-    // Update local state
-    if (updateProductStock) updateProductStock(product.id, quantity);
-    if (refetchProducts) refetchProducts();
-
-    return order;
-  };
+  const orderItems: OrderItemInput[] = [
+    {
+      productId: product.id,
+      name: product.name,
+      price: productPrice,
+      quantity,
+      imageUrl: product.image || product.image_url || null,
+    },
+  ];
 
   const handleCashOnDelivery = async () => {
     // Validate required fields
@@ -215,24 +106,33 @@ export default function CheckoutModal({
     setLoading(true);
 
     try {
-      const order = await createOrder('cod');
+      const order = await createSupabaseOrder({
+        userId: user?.id,
+        paymentMethod: 'cod',
+        shipping: shippingDetails,
+        items: orderItems,
+      });
 
-      // Show success
-      setOrderId(String(order.id));
-      setPaymentSuccess(true);
       onPurchaseComplete();
       clearCart();
+
+      if (updateProductStock) updateProductStock(product.id, quantity);
+      if (refetchProducts) refetchProducts();
 
       toast({
         title: "Order Placed Successfully! 🎉",
         description: `Your COD order has been confirmed. Order ID: ${String(order.id).slice(0, 8).toUpperCase()}`,
       });
 
-      // Auto-navigate to order tracking after 2 seconds
-      setTimeout(() => {
-        navigate(`/order/${order.id}`);
-        onClose();
-      }, 2000);
+      navigate("/order-success", {
+        replace: true,
+        state: {
+          orderId: order.id,
+          paymentMethod: 'cod',
+          total: totalInRupees,
+        },
+      });
+      onClose();
     } catch (err: any) {
       console.error('COD order creation failed:', err);
       
@@ -296,24 +196,34 @@ export default function CheckoutModal({
       handler: async function (response: any) {
         try {
           const paymentId = response.razorpay_payment_id;
-          const order = await createOrder('razorpay', paymentId);
+          const order = await createSupabaseOrder({
+            userId: user?.id,
+            paymentMethod: 'razorpay',
+            paymentId,
+            shipping: shippingDetails,
+            items: orderItems,
+          });
 
-          // Show success
-          setOrderId(String(order.id));
-          setPaymentSuccess(true);
           onPurchaseComplete();
           clearCart();
+
+          if (updateProductStock) updateProductStock(product.id, quantity);
+          if (refetchProducts) refetchProducts();
 
           toast({
             title: "Order Placed Successfully! 🎉",
             description: `Your order has been confirmed. Order ID: ${String(order.id).slice(0, 8).toUpperCase()}`,
           });
 
-          // Auto-navigate to order tracking after 2 seconds
-          setTimeout(() => {
-            navigate(`/order/${order.id}`);
-            onClose();
-          }, 2000);
+          navigate("/order-success", {
+            replace: true,
+            state: {
+              orderId: order.id,
+              paymentMethod: 'razorpay',
+              total: totalInRupees,
+            },
+          });
+          onClose();
         } catch (err: any) {
           console.error('Payment success but order creation failed:', err);
           
@@ -380,70 +290,6 @@ export default function CheckoutModal({
           <DialogDescription>Enter your shipping details and proceed to payment.</DialogDescription>
         </DialogHeader>
 
-        {paymentSuccess ? (
-          <div className="flex flex-col items-center justify-center py-8 space-y-6 animate-in fade-in duration-500">
-            <div className="rounded-full bg-gradient-to-br from-green-400 to-green-600 p-6 animate-in zoom-in duration-300 shadow-lg">
-              <CheckCircle2 className="h-16 w-16 text-white" />
-            </div>
-            <div className="text-center space-y-3">
-              <h3 className="text-2xl font-bold text-green-600">Order Confirmed! 🎉</h3>
-              <p className="text-muted-foreground text-lg">
-                Your order has been placed successfully
-              </p>
-              {paymentMethod === 'cod' && (
-                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mt-2">
-                  <p className="text-sm font-semibold text-orange-800">Cash on Delivery</p>
-                  <p className="text-xs text-orange-700 mt-1">
-                    Please keep cash ready. You'll pay when the order arrives.
-                  </p>
-                </div>
-              )}
-              {orderId && (
-                <div className="bg-muted/50 rounded-lg p-4 mt-4">
-                  <p className="text-sm text-muted-foreground mb-1">Order ID</p>
-                  <p className="font-mono font-semibold text-lg">{String(orderId).slice(0, 8).toUpperCase()}</p>
-                </div>
-              )}
-              <div className="flex flex-col sm:flex-row gap-3 mt-6">
-                <Button
-                  onClick={() => {
-                    if (orderId) {
-                      navigate(`/order/${orderId}`);
-                      onClose();
-                    }
-                  }}
-                  className="bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary"
-                >
-                  <Package className="h-4 w-4 mr-2" />
-                  Track Order
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    navigate('/orders');
-                    onClose();
-                  }}
-                >
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  View All Orders
-                </Button>
-              </div>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  onClose();
-                  setShippingDetails({ name: '', address: '', pincode: '', phone: '' });
-                  setPaymentSuccess(false);
-                  setOrderId(null);
-                  setPaymentMethod('razorpay');
-                }}
-                className="mt-2"
-              >
-                Continue Shopping
-              </Button>
-            </div>
-          </div>
-        ) : (
           <div className="space-y-6 animate-in fade-in duration-300">
             {/* Product Summary */}
             <div className="bg-gradient-to-r from-primary/5 to-primary/10 p-5 rounded-xl border border-primary/20 transition-all hover:shadow-lg">
@@ -653,7 +499,6 @@ export default function CheckoutModal({
               </div>
             )}
           </div>
-        )}
       </DialogContent>
     </Dialog>
   );

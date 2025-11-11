@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useNavigate } from "react-router-dom";
 
 const HeroCarousel = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
+  const navigate = useNavigate();
 
   const slides = [
     {
@@ -13,7 +15,8 @@ const HeroCarousel = () => {
       description: "Electronics, Fashion & More",
       buttonText: "Shop Now",
       bgColor: "bg-gradient-hero",
-      textColor: "text-white"
+      textColor: "text-white",
+      targetPath: "/category/Electronics"
     },
     {
       id: 2,
@@ -22,7 +25,8 @@ const HeroCarousel = () => {
       description: "Latest trends in fashion",
       buttonText: "Explore",
       bgColor: "bg-gradient-accent",
-      textColor: "text-white"
+      textColor: "text-white",
+      targetPath: "/category/Fashion"
     },
     {
       id: 3,
@@ -31,7 +35,8 @@ const HeroCarousel = () => {
       description: "Latest smartphones with best offers",
       buttonText: "Buy Now",
       bgColor: "bg-gradient-primary",
-      textColor: "text-white"
+      textColor: "text-white",
+      targetPath: "/category/Mobiles"
     }
   ];
 
@@ -75,6 +80,8 @@ const HeroCarousel = () => {
             <Button 
               size="lg" 
               className="btn-hero animate-bounce-in font-semibold px-8 py-3 text-lg"
+              type="button"
+              onClick={() => navigate(slide.targetPath)}
             >
               {slide.buttonText}
             </Button>

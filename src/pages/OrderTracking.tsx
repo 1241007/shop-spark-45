@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Package, Truck, CheckCircle2, Clock, MapPin, Phone, CreditCard } from 'lucide-react';
+import { ArrowLeft, Package, Truck, CheckCircle2, Clock, MapPin, Phone, CreditCard, Home as HomeIcon } from 'lucide-react';
 import { format } from 'date-fns';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 interface Order {
   id: string;
@@ -18,6 +19,7 @@ interface Order {
   phone: string;
   total: number;
   created_at: string;
+  updated_at?: string;
   order_items?: OrderItem[];
 }
 
@@ -45,23 +47,22 @@ const OrderTracking = () => {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
-  useEffect(() => {
-    if (id) {
-      fetchOrder(id);
-    }
-  }, [id, user]);
-
-  const fetchOrder = async (orderId: string) => {
+  const fetchOrder = useCallback(async (orderId: string, showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) {
+        setLoading(true);
+      }
       
       // Only fetch orders for logged-in users
       // For guests, show error
       if (!user?.id) {
         setError('Please log in to view your orders.');
         setOrder(null);
-        setLoading(false);
+        if (showLoader) {
+          setLoading(false);
+        }
         return;
       }
 
@@ -69,87 +70,118 @@ const OrderTracking = () => {
       // Show both paid orders and COD orders
       const query = supabase
         .from('orders')
-        .select('*')
+        .select('*, order_items(*)')
         .eq('id', orderId)
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
       const { data: orderData, error: orderError } = await query;
 
       if (orderError) {
-        if (import.meta.env.DEV) {
-          console.error('Error fetching order:', orderError);
-        }
         setError(`Failed to load order: ${orderError.message}`);
         setOrder(null);
-        setLoading(false);
+        if (showLoader) {
+          setLoading(false);
+        }
         return;
       }
 
       if (!orderData) {
         setError('Order not found. Please check the order ID.');
         setOrder(null);
-        setLoading(false);
+        if (showLoader) {
+          setLoading(false);
+        }
         return;
       }
 
-      // Verify it's a real order (paid or COD)
+      // Verify it's a real order (paid, COD, or cancelled)
       const isRealOrder = orderData.payment_id || 
                          orderData.payment_method === 'cod' || 
                          orderData.payment_status === 'cod-confirmed' ||
                          orderData.status === 'pending' ||
                          orderData.status === 'cod-confirmed' ||
-                         orderData.status === 'paid';
+                         orderData.status === 'paid' ||
+                         orderData.status === 'cancelled' ||
+                         orderData.payment_status === 'cancelled' ||
+                         orderData.order_status === 'cancelled';
       
       if (!isRealOrder) {
         setError('Order not found. Please check the order ID.');
         setOrder(null);
-        setLoading(false);
+        if (showLoader) {
+          setLoading(false);
+        }
         return;
       }
 
-      // Try to fetch order_items separately (in case the table doesn't exist or join fails)
-      let orderItems: OrderItem[] = [];
-      try {
-        const { data: itemsData, error: itemsError } = await supabase
-          .from('order_items')
-          .select('*')
-          .eq('order_id', orderId);
-
-        if (!itemsError && itemsData) {
-          orderItems = itemsData as OrderItem[];
-        }
-      } catch (itemsErr) {
-        // Order items are optional, continue without them
-        if (import.meta.env.DEV) {
-          console.warn('Could not fetch order items:', itemsErr);
-        }
-      }
+      // Determine status - check all possible status fields
+      const orderStatus = orderData.payment_status || orderData.status || orderData.order_status || 'paid';
 
       const order: Order = {
         id: String(orderData.id),
         payment_id: orderData.payment_id || undefined,
         payment_method: orderData.payment_method || undefined,
-        status: orderData.payment_status || orderData.status || orderData.order_status || 'paid',
+        status: orderStatus,
         customer_name: orderData.customer_name || '',
         address: orderData.address || '',
         phone: orderData.phone || '',
         total: Number(orderData.total || (orderData.amount ? orderData.amount / 100 : 0) || 0),
         created_at: orderData.created_at,
-        order_items: orderItems,
+        updated_at: orderData.updated_at || undefined,
+        order_items: (orderData.order_items || []).map((item: any) => ({
+          id: String(item.id),
+          name: item.name,
+          price: Number(item.price || 0),
+          quantity: Number(item.quantity || 1),
+          image_url: item.image_url || null,
+        })) as OrderItem[],
       };
 
       setOrder(order);
+      setError(null);
     } catch (error: any) {
-      if (import.meta.env.DEV) {
-        console.error('Error fetching order:', error);
-      }
-      setError(error?.message || 'Failed to load order. Please try again.');
+      const message = error?.message || 'Failed to load order. Please try again.';
+      setError(message);
       setOrder(null);
+      toast({
+        title: 'Unable to fetch order details',
+        description: message,
+        variant: 'destructive',
+      });
     } finally {
-      setLoading(false);
+      if (showLoader) {
+        setLoading(false);
+      }
     }
-  };
+  }, [toast, user?.id]);
+
+  useEffect(() => {
+    if (id) {
+      void fetchOrder(id, true);
+    }
+  }, [fetchOrder, id]);
+
+  useEffect(() => {
+    if (!id || !user?.id) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`order-${id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders', filter: `id=eq.${id}` },
+        () => {
+          void fetchOrder(id, false);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchOrder, id, user?.id]);
 
   const getTrackingSteps = (order: Order): TrackingStep[] => {
     const orderDate = new Date(order.created_at);
@@ -214,14 +246,24 @@ const OrderTracking = () => {
   if (!order && !loading) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <Button
-          variant="ghost"
-          onClick={() => navigate('/orders')}
-          className="mb-6"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Orders
-        </Button>
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+          <Button
+            variant="ghost"
+            onClick={() => navigate('/orders', { replace: true })}
+            className="flex items-center gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to My Orders
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => navigate('/', { replace: true })}
+            className="flex items-center gap-2"
+          >
+            <HomeIcon className="h-4 w-4" />
+            Home
+          </Button>
+        </div>
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Package className="h-16 w-16 text-muted-foreground mb-4" />
@@ -235,11 +277,109 @@ const OrderTracking = () => {
               {id ? `Order ID: ${id}` : 'Invalid order ID'}
             </p>
             <div className="flex gap-3">
-              <Button onClick={() => navigate('/orders')}>View All Orders</Button>
-              <Button variant="outline" onClick={() => navigate('/')}>Go Home</Button>
+              <Button onClick={() => navigate('/orders', { replace: true })}>View All Orders</Button>
+              <Button variant="outline" onClick={() => navigate('/', { replace: true })}>Go Home</Button>
             </div>
           </CardContent>
         </Card>
+      </div>
+    );
+  }
+
+  // Check if order is cancelled - show special UI
+  const isCancelled = order.status?.toLowerCase() === 'cancelled';
+  
+  if (isCancelled) {
+    const cancelledDate = order.updated_at || order.created_at;
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+          <Button
+            variant="ghost"
+            onClick={() => navigate('/orders', { replace: true })}
+            className="flex items-center gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to My Orders
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => navigate('/', { replace: true })}
+            className="flex items-center gap-2"
+          >
+            <HomeIcon className="h-4 w-4" />
+            Home
+          </Button>
+        </div>
+
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold mb-2">Track Your Order</h1>
+          <p className="text-muted-foreground">Order #{String(order.id).slice(0, 8).toUpperCase()}</p>
+        </div>
+
+        <Card className="max-w-2xl mx-auto">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <div className="w-20 h-20 rounded-full bg-red-100 flex items-center justify-center mb-6">
+              <span className="text-4xl">❌</span>
+            </div>
+            <h2 className="text-2xl font-bold text-red-600 mb-4">Order Cancelled</h2>
+            <p className="text-muted-foreground text-center mb-2">
+              Your order was cancelled on{' '}
+              {format(new Date(cancelledDate), 'MMM dd, yyyy hh:mm a')}.
+            </p>
+            <p className="text-sm text-muted-foreground text-center mb-6">
+              If you have any questions about this cancellation, please contact our support team.
+            </p>
+            <div className="flex flex-wrap gap-3 justify-center">
+              <Button
+                onClick={() => navigate('/orders', { replace: true })}
+                variant="outline"
+              >
+                View All Orders
+              </Button>
+              <Button
+                onClick={() => navigate('/', { replace: true })}
+                className="bg-gradient-to-r from-primary to-primary/90"
+              >
+                Continue Shopping
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Show order details even for cancelled orders */}
+        {order.order_items && order.order_items.length > 0 && (
+          <Card className="max-w-2xl mx-auto mt-6">
+            <CardHeader>
+              <CardTitle>Order Items</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {order.order_items.map((item) => (
+                  <div key={item.id} className="flex items-center gap-4 p-3 bg-muted/30 rounded-lg">
+                    <img
+                      src={item.image_url || '/placeholder.svg'}
+                      alt={item.name}
+                      className="w-16 h-16 object-cover rounded"
+                      loading="lazy"
+                      onError={(e) => {
+                        const target = e.currentTarget as HTMLImageElement;
+                        target.src = '/placeholder.svg';
+                      }}
+                    />
+                    <div className="flex-1">
+                      <h4 className="font-semibold">{item.name}</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Quantity: {item.quantity} × ₹{item.price.toLocaleString()}
+                      </p>
+                    </div>
+                    <p className="font-semibold">₹{(item.price * item.quantity).toLocaleString()}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     );
   }
@@ -256,14 +396,24 @@ const OrderTracking = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <Button
-        variant="ghost"
-        onClick={() => navigate('/orders')}
-        className="mb-6"
-      >
-        <ArrowLeft className="h-4 w-4 mr-2" />
-        Back to Orders
-      </Button>
+      <div className="flex flex-wrap items-center gap-3 mb-6">
+        <Button
+          variant="ghost"
+          onClick={() => navigate('/orders', { replace: true })}
+          className="flex items-center gap-2"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to My Orders
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => navigate('/', { replace: true })}
+          className="flex items-center gap-2"
+        >
+          <HomeIcon className="h-4 w-4" />
+          Home
+        </Button>
+      </div>
 
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2">Track Your Order</h1>

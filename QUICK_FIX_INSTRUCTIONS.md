@@ -67,3 +67,5 @@ After running the migration:
 
 **That's it!** Just run the SQL file in Supabase and you're done! 🎉
 
+
+

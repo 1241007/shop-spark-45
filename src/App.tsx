@@ -17,6 +17,8 @@ import Auth from "./pages/Auth";
 import OrderHistory from "./pages/OrderHistory";
 import OrderTracking from "./pages/OrderTracking";
 import Help from "./pages/Help";
+import Checkout from "./pages/Checkout";
+import OrderSuccess from "./pages/OrderSuccess";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,6 +41,8 @@ const App = () => (
                   <Route path="/location" element={<LocationPage />} />
                   <Route path="/auth" element={<Auth />} />
                   <Route path="/orders" element={<OrderHistory />} />
+                  <Route path="/checkout" element={<Checkout />} />
+                  <Route path="/order-success" element={<OrderSuccess />} />
                   <Route path="/order/:id" element={<OrderTracking />} />
                   <Route path="/help" element={<Help />} />
                   {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

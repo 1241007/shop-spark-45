@@ -2,7 +2,7 @@ import { Search, ShoppingCart, User, Menu, LogOut, Package, HelpCircle } from "l
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
-import { Link } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import { useProducts } from '@/hooks/useProducts';
 import SearchResults from "./SearchResults";
 import Cart from "./Cart";
@@ -10,6 +10,19 @@ import LocationSelector from "./LocationSelector";
 import { useRef, useEffect, useState } from "react";
 
 const Header = () => {
+  const topCategories = [
+    "Electronics",
+    "Fashion",
+    "Home & Kitchen",
+    "Sports",
+    "Books",
+    "Beauty",
+    "Mobiles",
+  ];
+
+  const getCategoryHref = (category: string) =>
+    `/category/${encodeURIComponent(category)}`;
+
   const { user, signOut } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const { searchProducts } = useProducts();
@@ -144,13 +157,20 @@ const Header = () => {
 
         {/* Categories Navigation */}
         <nav className="hidden lg:flex items-center space-x-6 py-2 border-t border-border">
-          <a href="#" className="text-sm font-medium hover:text-primary transition-colors">Electronics</a>
-          <a href="#" className="text-sm font-medium hover:text-primary transition-colors">Fashion</a>
-          <a href="#" className="text-sm font-medium hover:text-primary transition-colors">Home & Kitchen</a>
-          <a href="#" className="text-sm font-medium hover:text-primary transition-colors">Sports</a>
-          <a href="#" className="text-sm font-medium hover:text-primary transition-colors">Books</a>
-          <a href="#" className="text-sm font-medium hover:text-primary transition-colors">Beauty</a>
-          <a href="#" className="text-sm font-medium hover:text-primary transition-colors">Mobiles</a>
+          {topCategories.map((category) => (
+            <NavLink
+              key={category}
+              to={getCategoryHref(category)}
+              className={({ isActive }) =>
+                [
+                  "text-sm font-medium transition-colors",
+                  isActive ? "text-primary" : "hover:text-primary",
+                ].join(" ")
+              }
+            >
+              {category}
+            </NavLink>
+          ))}
         </nav>
       </div>
     </header>
